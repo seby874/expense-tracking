@@ -1,0 +1,40 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Unico account autorizzato (UID visibile in Firebase > Authentication > Users).
+    function isOwner(uid) {
+      return request.auth != null
+        && request.auth.uid == uid
+        && uid == "i8X7kZUbiIaZwm6ZM5FC8j2D65U2";
+    }
+
+    // Forma minima di una voce del registro: niente campi estranei,
+    // tipi corretti, ID del documento coerente con il contenuto.
+    function isValidEntry(entryId) {
+      let data = request.resource.data;
+      return data.keys().hasOnly(['kind', 'id', 'version', 'value'])
+        && data.keys().hasAll(['kind', 'id', 'version', 'value'])
+        && data.kind in ['movement', 'balance', 'account', 'label']
+        && data.id is string
+        && data.id.size() > 0
+        && data.id.size() <= 73
+        && entryId == data.kind + ':' + data.id
+        && data.version is string
+        && data.version.size() == 36
+        && data.value is map
+        && data.value.size() <= 12;
+    }
+
+    match /users/{uid}/ledger/{entryId} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && isValidEntry(entryId);
+    }
+
+    // Qualsiasi altro percorso è vietato.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
