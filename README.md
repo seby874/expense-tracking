@@ -9,6 +9,12 @@ App personale in italiano per registrare entrate, spese, trasferimenti, saldi de
 - Pagina interna per scegliere la nuova password, se nei modelli email di Firebase imposti l’URL dell’app come URL di azione.
 - **Disconnessione automatica per inattività**, da 5 minuti a 1 ora oppure disattivata (Impostazioni → Sicurezza e sessione). Prima dell’uscita compare un avviso; la scelta vale per il singolo browser.
 - Pulsante **Cambia password** in Impostazioni.
+- **Conti, categorie e fonti**: modifica, archiviazione (spariscono dai menu, lo storico resta) ed eliminazione. Se ci sono movimenti collegati si può archiviare oppure spostarli su un’altra voce prima di eliminare.
+- **Sottocategorie di spesa** gestite per ogni categoria (aggiungi, rinomina, elimina, riordina); le rinomine si applicano anche ai movimenti già salvati.
+- **Movimenti ricorrenti** (settimanali, mensili, annuali, ogni N periodi, con data di fine facoltativa): le scadenze arrivate vengono proposte da registrare, modificare o saltare.
+- **Importazione** dei CSV esportati dall’app (movimenti o saldi), con anteprima e riconoscimento dei doppioni, e **backup completo** in JSON da scaricare e ripristinare.
+- **Tema** automatico, chiaro o scuro.
+- **Uso offline** facoltativo per dispositivo: copia locale dei dati, scritture in coda senza rete, apertura della pagina tramite service worker; la copia locale si cancella all’uscita.
 
 ## Struttura
 
@@ -18,6 +24,13 @@ src/
   app/auth-screens.tsx  accesso, password dimenticata, nuova password
   app/session-guard.tsx timer di inattività e avviso
   app/ledger-*.tsx      interfaccia dell'app
+  app/manage.tsx        modifica, archiviazione ed eliminazione di conti e categorie
+  app/recurring.tsx     scadenze e elenco dei movimenti ricorrenti
+  app/import-dialog.tsx importazione CSV e ripristino backup
+  lib/recurring.ts      calcolo delle scadenze
+  lib/data-io.ts        esportazione, lettura CSV, piano d'importazione, backup
+  lib/preferences.ts    tema e uso offline (per dispositivo)
+  lib/offline-shell.ts  registrazione del service worker (public/sw.js)
   lib/config.ts         nome dell'app e opzioni (reset password, minuti di inattività)
   lib/firebase.ts       configurazione Firebase
   lib/local-ledger.ts   lettura e scrittura su Firestore

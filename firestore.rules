@@ -16,7 +16,7 @@ service cloud.firestore {
       let data = request.resource.data;
       return data.keys().hasOnly(['kind', 'id', 'version', 'value'])
         && data.keys().hasAll(['kind', 'id', 'version', 'value'])
-        && data.kind in ['movement', 'balance', 'account', 'label']
+        && data.kind in ['movement', 'balance', 'account', 'label', 'recurring']
         && data.id is string
         && data.id.size() > 0
         && data.id.size() <= 73

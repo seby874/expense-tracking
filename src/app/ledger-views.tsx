@@ -1,16 +1,19 @@
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import {
-  ArrowDownLeft, ArrowDownToLine, ArrowRight, ArrowUpRight, BarChart3, ChartNoAxesCombined,
-  CircleDollarSign, CircleHelp, ClipboardList, KeyRound, Landmark, Layers3, Pencil, Plus, Search, Timer, Wallet, WalletCards,
+  Archive, ArrowDownLeft, ArrowDownToLine, ArrowRight, ArrowUpRight, BarChart3, ChartNoAxesCombined, ChevronRight,
+  CircleDollarSign, CircleHelp, ClipboardList, CloudOff, DatabaseBackup, FileUp, KeyRound, Landmark, Layers3, Monitor, Moon,
+  Pencil, Plus, RotateCw, Search, Sun, Timer, Wallet, WalletCards,
 } from "lucide-react";
 import {
-  ACCOUNT_TYPES, ENTRY_TYPES, MONTHS, accountBalances, lastRecordedMonth, mix, money, monthLabel,
-  monthName, netWorth, periodMovements, rate, shortDate, totals, yearlyFlow, yearMonths,
+  ACCOUNT_TYPES, ENTRY_TYPES, MONTHS, accountBalances, activeAccounts, lastRecordedMonth, mix, money, monthLabel,
+  monthName, netWorth, periodMovements, rate, shortDate, subcategoryList, subcategoryUsage, totals, yearlyFlow, yearMonths,
   type Account, type Label, type Ledger, type Movement, type MovementType,
 } from "../lib/ledger";
 import { TYPE_ICONS } from "./ledger-forms";
 import { IDLE_OPTIONS } from "../lib/config";
 import { idleLabel } from "../lib/session";
+import { readOffline, readTheme, saveOffline, saveTheme, type ThemeMode } from "../lib/preferences";
+import { offlineEnabled } from "../lib/firebase";
 
 export type SessionInfo = {
   email: string;
@@ -145,19 +148,22 @@ function SpendingCard({ ledger, items, periodName, onOpen }: {
   </section>;
 }
 
-export function Overview({ ledger, year, period, month, monthChange, onEdit, onNew, onView, onBalance, demoAction }: PeriodProps & {
+export function Overview({ ledger, year, period, month, monthChange, onEdit, onNew, onView, onBalance, demoAction, due }: PeriodProps & {
   onEdit: (movement: Movement) => void;
   onNew: () => void;
   onView: (view: "movements" | "accounts" | "reports") => void;
   onBalance: (account: Account) => void;
   demoAction?: ReactNode;
+  due?: ReactNode;
 }) {
   const items = periodMovements(ledger, period);
   const summary = totals(items);
   const accounts = accountBalances(ledger, month);
+  const visibleAccounts = accounts.filter(({ account, amount }) => !account.value.archived || (amount !== null && amount !== 0));
   const known = accounts.filter(({ amount }) => amount !== null).length;
   const periodName = period.length === 4 ? `Anno ${year}` : monthLabel(period);
   return <>
+    {due}
     <section className="stats-grid" aria-label="Riepilogo del periodo">
       <Stat title="Entrate" value={money(summary.income)} color="green" icon={<ArrowDownLeft size={20} />}
         caption={flowWord(items.filter(({ value }) => value.type === "income").length, "entrata registrata", "entrate registrate")} />
@@ -186,7 +192,7 @@ export function Overview({ ledger, year, period, month, monthChange, onEdit, onN
         <PanelTitle title="Conti e saldi" subtitle={monthLabel(month)}
           action={<button type="button" className="icon-button quiet" aria-label="Vai a conti e patrimonio" onClick={() => onView("accounts")}><ArrowUpRight size={18} /></button>} />
         <ul className="account-mini">
-          {accounts.slice(0, 4).map(({ account, amount }) => <li key={account.id}>
+          {visibleAccounts.slice(0, 4).map(({ account, amount }) => <li key={account.id}>
             <span className={`account-symbol account-${account.id}`}><AccountGlyph account={account} /></span>
             <span className="account-mini-name"><strong>{account.value.name}</strong><small>{ACCOUNT_TYPES[account.value.type]}</small></span>
             {amount === null ? <button className="text-button" type="button" onClick={() => onBalance(account)} aria-label={`Registra saldo ${account.value.name}`}>Registra</button> : <b>{money(amount)}</b>}
@@ -271,7 +277,7 @@ export function Movements({ ledger, period, onEdit, onNew, onExport }: {
       {labels.length > 0 && <label><span className="sr-only">{type === "income" ? "Fonte di entrata" : "Categoria"}</span>
         <select value={label} onChange={(event) => { setLabel(event.target.value); setLimit(25); }}>
           <option value="">{type === "income" ? "Tutte le fonti" : "Tutte le categorie"}</option>
-          {labels.map((item) => <option value={item.id} key={item.id}>{item.value.name}</option>)}
+          {labels.map((item) => <option value={item.id} key={item.id}>{item.value.name}{item.value.archived ? " (archiviata)" : ""}</option>)}
         </select></label>}
     </div>
     {filtered.length
@@ -337,16 +343,23 @@ export function Accounts({ ledger, year, month, monthChange, onBalance, onAccoun
       <PanelTitle title="I tuoi conti" subtitle="Liquidità, altre attività e debiti."
         action={<button type="button" className="button secondary" onClick={() => onAccount()}><Plus size={17} /> Nuovo conto</button>} />
       <div className="account-grid">
-        {values.map(({ account, amount, exact, snapshot }) => <article className="account-card" key={account.id}>
+        {values.filter(({ account }) => !account.value.archived).map(({ account, amount, exact, snapshot }) => <article className="account-card" key={account.id}>
           <div className="account-card-top"><span className={`account-symbol account-${account.id}`}><AccountGlyph account={account} /></span>
             <div><h3>{account.value.name}</h3><span>{ACCOUNT_TYPES[account.value.type]}</span></div>
-            <button className="icon-button quiet" type="button" aria-label={`Rinomina ${account.value.name}`} onClick={() => onAccount(account)}><Pencil size={16} /></button>
+            <button className="icon-button quiet" type="button" aria-label={`Modifica ${account.value.name}`} title="Modifica, archivia o elimina" onClick={() => onAccount(account)}><Pencil size={16} /></button>
           </div>
           <strong>{money(amount)}</strong>
           <span className="account-detail">{exact ? "Saldo registrato" : snapshot ? `Da ${monthLabel(snapshot.value.month)}${account.value.type === "debt" ? "" : " + movimenti collegati"}` : "Saldo iniziale da registrare"}</span>
           <button type="button" className="button secondary" onClick={() => onBalance(account)}>{exact ? "Modifica saldo" : "Registra saldo"}</button>
         </article>)}
       </div>
+      {values.some(({ account }) => account.value.archived) && <details className="archived-block">
+        <summary><Archive size={15} /> Conti archiviati ({values.filter(({ account }) => account.value.archived).length})</summary>
+        <ul className="archived-list">{values.filter(({ account }) => account.value.archived).map(({ account, amount }) => <li key={account.id}>
+          <span>{account.value.name}<small>{ACCOUNT_TYPES[account.value.type]}{amount !== null && amount !== 0 ? ` · ancora nel patrimonio: ${money(amount)}` : ""}</small></span>
+          <button type="button" className="text-button" onClick={() => onAccount(account)}>Gestisci</button>
+        </li>)}</ul>
+      </details>}
       <p className="panel-note"><CircleHelp size={16} /> Il saldo registrato a fine mese comprende già i movimenti di quel mese. L’app applica quelli collegati dei mesi successivi.</p>
     </section>
     <section className="panel history-panel">
@@ -417,6 +430,7 @@ function Compare({ ledger, year, period, type }: Omit<PeriodProps, "month" | "mo
 
   const a = values(first);
   const b = values(second);
+  const archivedIds = new Set(ledger.labels.filter((label) => label.value.archived).map((label) => label.id));
   const biggest = Math.max(1, ...a.map((group) => group.amount), ...b.map((group) => group.amount));
   const total = (groups: typeof a) => groups.reduce((sum, group) => sum + group.amount, 0);
   const options = <>
@@ -432,7 +446,7 @@ function Compare({ ledger, year, period, type }: Omit<PeriodProps, "month" | "mo
     </div>
     <div className="table-scroll"><table className="data-table comparison-table">
       <thead><tr><th scope="col">{type === "expense" ? "Categoria" : "Fonte"}</th><th scope="col" className="number">Periodo A</th><th scope="col" className="number">Periodo B</th></tr></thead>
-      <tbody>{a.map((group, index) => <tr key={group.id}>
+      <tbody>{a.map((group, index) => (archivedIds.has(group.id) && !group.amount && !b[index].amount) ? null : <tr key={group.id}>
         <td><strong>{group.name}</strong><div className="compare-bars" aria-hidden="true">
           <i className="compare-a" style={{ width: `${group.amount / biggest * 100}%` }} />
           <i className="compare-b" style={{ width: `${b[index].amount / biggest * 100}%` }} />
@@ -534,30 +548,95 @@ function SecurityPanel({ session }: { session: SessionInfo }) {
   </section>;
 }
 
-export function Settings({ ledger, onLabel, onExport, onBalancesExport, onDemo, session }: {
+function CategoryTree({ ledger, type, onLabel }: {
+  ledger: Ledger; type: "expense" | "income"; onLabel: (type: "expense" | "income", label?: Label) => void;
+}) {
+  const labels = ledger.labels.filter((label) => label.value.type === type);
+  const active = labels.filter((label) => !label.value.archived);
+  const archived = labels.filter((label) => label.value.archived);
+  const expense = type === "expense";
+  const row = (label: Label) => {
+    const subs = expense ? subcategoryList(ledger, label.id) : [];
+    const edit = <button type="button" className="icon-button quiet" aria-label={`Modifica ${label.value.name}`}
+      title={expense ? "Modifica nome e sottocategorie" : "Modifica"} onClick={(event) => { event.preventDefault(); onLabel(type, label); }}><Pencil size={16} /></button>;
+    if (!expense) return <li key={label.id} className="tree-leaf"><span>{label.value.name}</span>{edit}</li>;
+    return <li key={label.id}>
+      <details className="tree-node">
+        <summary><ChevronRight size={15} className="tree-chevron" /><span>{label.value.name}</span>
+          <span className="tree-count">{subs.length}</span>{edit}</summary>
+        {subs.length ? <ul className="tree-children">{subs.map((name) => {
+          const used = subcategoryUsage(ledger, label.id, name).length;
+          return <li key={name}><span>{name}</span>{used > 0 && <small>{used} {used === 1 ? "movimento" : "movimenti"}</small>}</li>;
+        })}</ul> : <p className="tree-empty">Nessuna sottocategoria.</p>}
+        <button type="button" className="text-button tree-manage" onClick={() => onLabel(type, label)}><Pencil size={14} /> Gestisci sottocategorie</button>
+      </details>
+    </li>;
+  };
+  return <section className="panel label-panel">
+    <PanelTitle title={expense ? "Categorie di spesa" : "Fonti di entrata"}
+      subtitle={expense ? "Apri una categoria per vedere le sottocategorie; la matita le modifica." : "Scegli come raggruppare le tue entrate."}
+      action={<button type="button" className="button secondary" onClick={() => onLabel(type)}><Plus size={16} /> Aggiungi</button>} />
+    <ul className={expense ? "label-list category-tree" : "label-list"}>{active.map(row)}</ul>
+    {archived.length > 0 && <details className="archived-block">
+      <summary><Archive size={15} /> Archiviate ({archived.length})</summary>
+      <ul className="archived-list">{archived.map((label) => <li key={label.id}><span>{label.value.name}</span>
+        <button type="button" className="text-button" onClick={() => onLabel(type, label)}>Gestisci</button></li>)}</ul>
+    </details>}
+  </section>;
+}
+
+function DevicePanel() {
+  const [theme, setTheme] = useState<ThemeMode>(readTheme);
+  const [offline, setOffline] = useState(readOffline);
+  const changed = offline !== offlineEnabled;
+  const themes: [ThemeMode, string, typeof Sun][] = [["auto", "Automatico", Monitor], ["light", "Chiaro", Sun], ["dark", "Scuro", Moon]];
+  return <section className="panel device-panel">
+    <PanelTitle title="Aspetto e dispositivo" subtitle="Queste scelte valgono solo per questo browser." />
+    <ul className="security-list">
+      <li>
+        <span className="security-icon">{theme === "dark" ? <Moon size={18} /> : theme === "light" ? <Sun size={18} /> : <Monitor size={18} />}</span>
+        <div><strong>Tema</strong><p>{theme === "auto" ? "Segue l’impostazione chiaro/scuro del sistema." : theme === "dark" ? "Sempre scuro." : "Sempre chiaro."}</p></div>
+        <div className="segmented" role="group" aria-label="Tema">
+          {themes.map(([value, title, Icon]) => <button type="button" key={value} aria-pressed={theme === value}
+            onClick={() => { setTheme(value); saveTheme(value); }}><Icon size={15} />{title}</button>)}
+        </div>
+      </li>
+      <li>
+        <span className="security-icon"><CloudOff size={18} /></span>
+        <div><strong>Uso offline</strong><p>{offline
+          ? "I dati restano anche su questo dispositivo: puoi consultarli e registrare movimenti senza rete, si sincronizzano al ritorno della connessione. All’uscita la copia locale viene cancellata."
+          : "I dati restano solo sul cloud. Attivalo sui tuoi dispositivi personali, non su PC condivisi."}</p></div>
+        <label className="switch"><input type="checkbox" checked={offline} onChange={(event) => { setOffline(event.target.checked); saveOffline(event.target.checked); }} />
+          <span aria-hidden="true" /><span className="sr-only">Uso offline</span></label>
+      </li>
+    </ul>
+    {changed && <div className="notice reload-notice"><RotateCw size={18} /><div><strong>Ricarica per applicare</strong>
+      <span>{offline ? "Dopo il ricaricamento l’app salverà una copia dei dati su questo dispositivo." : "Dopo il ricaricamento la copia locale verrà cancellata."}</span></div>
+      <button type="button" className="button secondary" onClick={() => window.location.reload()}>Ricarica ora</button></div>}
+  </section>;
+}
+
+export function Settings({ ledger, onLabel, onExport, onBalancesExport, onBackup, onImport, onDemo, session }: {
   ledger: Ledger; onLabel: (type: "expense" | "income", label?: Label) => void;
-  onExport: () => void; onBalancesExport: () => void; onDemo: () => void; session: SessionInfo;
+  onExport: () => void; onBalancesExport: () => void; onBackup: () => void; onImport: () => void; onDemo: () => void; session: SessionInfo;
 }) {
   return <>
     <div className="split settings-grid">
-      {(["expense", "income"] as const).map((type) => <section className="panel label-panel" key={type}>
-        <PanelTitle title={type === "expense" ? "Categorie di spesa" : "Fonti di entrata"}
-          subtitle={type === "expense" ? "Puoi inserire le sottocategorie quando registri una spesa." : "Scegli come raggruppare le tue entrate."}
-          action={<button type="button" className="button secondary" onClick={() => onLabel(type)}><Plus size={16} /> Aggiungi</button>} />
-        <ul className="label-list">{ledger.labels.filter((label) => label.value.type === type).map((label) => (
-          <li key={label.id}><span>{label.value.name}</span><button type="button" className="icon-button quiet"
-            aria-label={`Rinomina ${label.value.name}`} onClick={() => onLabel(type, label)}><Pencil size={16} /></button></li>
-        ))}</ul>
-      </section>)}
+      <CategoryTree ledger={ledger} type="expense" onLabel={onLabel} />
+      <CategoryTree ledger={ledger} type="income" onLabel={onLabel} />
     </div>
     <SecurityPanel session={session} />
+    <DevicePanel />
     <section className="panel export-panel">
-      <PanelTitle title="I tuoi dati" subtitle="Scarica i movimenti o i saldi registrati in formato CSV." />
+      <PanelTitle title="I tuoi dati" subtitle="Esporta in CSV, scarica un backup completo o importa da un file." />
       <div className="export-actions">
         <button type="button" className="button secondary" onClick={onExport} disabled={!ledger.movements.length}><ArrowDownToLine size={17} /> Esporta movimenti</button>
         <button type="button" className="button secondary" onClick={onBalancesExport} disabled={!ledger.balances.length}><ArrowDownToLine size={17} /> Esporta saldi</button>
+        <button type="button" className="button secondary" onClick={onBackup}><DatabaseBackup size={17} /> Backup completo</button>
+        <button type="button" className="button secondary" onClick={onImport}><FileUp size={17} /> Importa</button>
         <button type="button" className="button secondary" onClick={onDemo}>Dati di esempio</button>
       </div>
+      <p className="panel-note"><CircleHelp size={16} /> Il backup completo (.json) contiene anche conti, categorie, sottocategorie e ricorrenti: è il file giusto per spostare tutto su un altro account.</p>
     </section>
   </>;
 }

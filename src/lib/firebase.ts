@@ -1,6 +1,9 @@
 import { initializeApp } from "firebase/app";
 import { browserLocalPersistence, indexedDBLocalPersistence, initializeAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import {
+  clearIndexedDbPersistence, initializeFirestore, memoryLocalCache, persistentLocalCache, persistentMultipleTabManager,
+} from "firebase/firestore";
+import { readOffline, takeCacheClear } from "./preferences";
 
 // Questa configurazione è pubblica per natura (finisce nel bundle del browser).
 // La protezione dei dati è data dalle regole Firestore e dalle restrizioni
@@ -23,4 +26,19 @@ export const auth = initializeAuth(app, {
 });
 auth.languageCode = "it";
 
-export const db = getFirestore(app);
+/** Uso offline attivato su questo dispositivo (Impostazioni → Aspetto e dispositivo). */
+export const offlineEnabled = readOffline();
+
+// Con l'uso offline i dati restano anche nel browser (IndexedDB); senza, solo in memoria.
+export const db = initializeFirestore(app, {
+  ignoreUndefinedProperties: true,
+  localCache: offlineEnabled
+    ? persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+    : memoryLocalCache(),
+});
+
+// Dopo un'uscita o dopo aver disattivato l'offline, la copia locale si cancella
+// qui, prima che Firestore la apra. Le altre funzioni attendono questa promessa.
+export const firestoreReady: Promise<void> = takeCacheClear()
+  ? clearIndexedDbPersistence(db).catch((error) => console.warn("Pulizia della copia locale non riuscita:", error))
+  : Promise.resolve();

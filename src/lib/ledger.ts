@@ -5,7 +5,7 @@ export const MONTHS = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giug
 export const METHOD_LABELS = ["Carta", "Contanti", "Bonifico", "Addebito diretto", "PayPal", "Altro"];
 export const ACCOUNT_TYPES = { cash: "Liquidità", asset: "Altre attività", debt: "Debito" } as const;
 export const ENTRY_TYPES = { expense: "Spesa", income: "Entrata", transfer: "Trasferimento" } as const;
-export const COLORS = ["#0b8277", "#4a6da5", "#d48351", "#7d65ae", "#c45e78", "#3e8da1", "#a07243", "#667fa6", "#c37c3a", "#77799b", "#608b73"];
+export const COLORS = ["#0b8277", "#4a6da5", "#d48351", "#7d65ae", "#c45e78", "#3e8da1", "#a07243", "#667fa6", "#c37c3a", "#77799b", "#608b73", "#c9a23a", "#5e8f3c", "#b05a9a", "#3f9e9a", "#8a6b52"];
 export const MAX_CENTS = 99_999_999_999;
 
 const id = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/);
@@ -19,6 +19,8 @@ const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) => {
 });
 
 const version = z.string().uuid().nullable();
+export const subcategoryName = z.string().trim().min(1).max(80);
+export const MAX_SUBCATEGORIES = 60;
 const movementFields = {
   date: dateSchema,
   title: z.string().trim().min(1).max(160),
@@ -27,26 +29,42 @@ const movementFields = {
   accountId: id.nullable(),
 };
 
+const movementValue = z.discriminatedUnion("type", [
+  z.object({ ...movementFields, type: z.literal("expense"), labelId: id, subcategory: z.string().trim().max(80), method: z.string().trim().max(60) }),
+  z.object({ ...movementFields, type: z.literal("income"), labelId: id }),
+  z.object({ ...movementFields, type: z.literal("transfer"), accountId: id, toAccountId: id }),
+]);
+
+export const scheduleSchema = z.object({
+  frequency: z.enum(["weekly", "monthly", "yearly"]),
+  every: z.number().int().min(1).max(12),
+  start: dateSchema,
+  end: z.union([dateSchema, z.literal("")]),
+  // Numero di scadenze già gestite (registrate o saltate) a partire da `start`.
+  done: z.number().int().min(0).max(100_000),
+});
+
+// `archived`: nascosto dai menu ma con lo storico intatto.
+// `removed`: segna come eliminata una voce predefinita (che altrimenti tornerebbe dal codice).
+const flags = { archived: z.boolean().optional(), removed: z.boolean().optional() };
+
 export const recordSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("movement"), id, version,
-    value: z.discriminatedUnion("type", [
-      z.object({ ...movementFields, type: z.literal("expense"), labelId: id, subcategory: z.string().trim().max(80), method: z.string().trim().max(60) }),
-      z.object({ ...movementFields, type: z.literal("income"), labelId: id }),
-      z.object({ ...movementFields, type: z.literal("transfer"), accountId: id, toAccountId: id }),
-    ]),
-  }),
+  z.object({ kind: z.literal("movement"), id, version, value: movementValue }),
   z.object({
     kind: z.literal("balance"), id: z.string().regex(/^[a-zA-Z0-9_-]{1,64}@\d{4}-\d{2}$/), version,
     value: z.object({ accountId: id, month: monthSchema, amount: cents }),
   }),
   z.object({
     kind: z.literal("account"), id, version,
-    value: z.object({ name, type: z.enum(["cash", "asset", "debt"]) }),
+    value: z.object({ name, type: z.enum(["cash", "asset", "debt"]), ...flags }),
   }),
   z.object({
     kind: z.literal("label"), id, version,
-    value: z.object({ name, type: z.enum(["expense", "income"]) }),
+    value: z.object({ name, type: z.enum(["expense", "income"]), ...flags, subcategories: z.array(subcategoryName).max(MAX_SUBCATEGORIES).optional() }),
+  }),
+  z.object({
+    kind: z.literal("recurring"), id, version,
+    value: z.object({ template: movementValue, schedule: scheduleSchema, paused: z.boolean().optional() }),
   }),
 ]);
 
@@ -54,7 +72,7 @@ export const mutationSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("save"), record: recordSchema }),
   z.object({
     op: z.literal("delete"),
-    kind: z.enum(["movement", "balance"]),
+    kind: z.enum(["movement", "balance", "account", "label", "recurring"]),
     id: z.string().min(1).max(73),
     version: z.string().uuid(),
   }),
@@ -65,6 +83,8 @@ export type Movement = Extract<LedgerRecord, { kind: "movement" }>;
 export type Balance = Extract<LedgerRecord, { kind: "balance" }>;
 export type Account = Extract<LedgerRecord, { kind: "account" }>;
 export type Label = Extract<LedgerRecord, { kind: "label" }>;
+export type Recurring = Extract<LedgerRecord, { kind: "recurring" }>;
+export type Schedule = Recurring["value"]["schedule"];
 export type MovementType = Movement["value"]["type"];
 export type Mutation = z.infer<typeof mutationSchema>;
 
@@ -110,34 +130,82 @@ export function balanceId(accountId: string, month: string) {
   return `${accountId}@${month}`;
 }
 
+export function isDefaultId(kind: "account" | "label", recordId: string) {
+  return (kind === "account" ? DEFAULT_ACCOUNTS : DEFAULT_LABELS).some((item) => item.id === recordId);
+}
+
 export function deriveLedger(records: LedgerRecord[]) {
   const accounts = new Map(DEFAULT_ACCOUNTS.map((account) => [account.id, account]));
   const labels = new Map(DEFAULT_LABELS.map((label) => [label.id, label]));
   const movements: Movement[] = [];
   const balances: Balance[] = [];
+  const recurring: Recurring[] = [];
+  const removed: (Account | Label)[] = [];
 
   for (const record of records) {
     switch (record.kind) {
-      case "account": accounts.set(record.id, record); break;
-      case "label": labels.set(record.id, record); break;
+      case "account":
+        if (record.value.removed) { accounts.delete(record.id); removed.push(record); } else accounts.set(record.id, record);
+        break;
+      case "label":
+        if (record.value.removed) { labels.delete(record.id); removed.push(record); } else labels.set(record.id, record);
+        break;
       case "movement": movements.push(record); break;
       case "balance": balances.push(record); break;
+      case "recurring": recurring.push(record); break;
     }
   }
 
   movements.sort((a, b) => b.value.date.localeCompare(a.value.date));
   balances.sort((a, b) => b.value.month.localeCompare(a.value.month));
-  return { accounts: [...accounts.values()], labels: [...labels.values()], movements, balances };
+  recurring.sort((a, b) => a.value.template.title.localeCompare(b.value.template.title, "it"));
+  return { accounts: [...accounts.values()], labels: [...labels.values()], movements, balances, recurring, removed };
+}
+
+export function activeAccounts(ledger: Ledger, keep?: string | null) {
+  return ledger.accounts.filter((account) => !account.value.archived || account.id === keep);
+}
+
+export function activeLabels(ledger: Ledger, type: "expense" | "income", keep?: string | null) {
+  return ledger.labels.filter((label) => label.value.type === type && (!label.value.archived || label.id === keep));
+}
+
+/** Quante voci usano un conto o una categoria: serve a decidere se si può eliminare. */
+export function usage(ledger: Ledger, kind: "account" | "label", recordId: string) {
+  const movements = ledger.movements.filter(({ value }) => kind === "account"
+    ? value.accountId === recordId || (value.type === "transfer" && value.toAccountId === recordId)
+    : value.type !== "transfer" && value.labelId === recordId);
+  const recurring = ledger.recurring.filter(({ value: { template } }) => kind === "account"
+    ? template.accountId === recordId || (template.type === "transfer" && template.toAccountId === recordId)
+    : template.type !== "transfer" && template.labelId === recordId);
+  const balances = kind === "account" ? ledger.balances.filter(({ value }) => value.accountId === recordId) : [];
+  return { movements, recurring, balances };
 }
 
 export type Ledger = ReturnType<typeof deriveLedger>;
 
-export function subcategories(ledger: Ledger, labelId: string) {
-  const suggestions = EXPENSE_OPTIONS.find(([key]) => key === labelId)?.[2] ?? [];
-  const entered = ledger.movements.flatMap(({ value }) => (
+export function sameName(a: string, b: string) {
+  return a.trim().toLocaleLowerCase("it") === b.trim().toLocaleLowerCase("it");
+}
+
+/**
+ * Elenco delle sottocategorie di una categoria di spesa. Finché l'elenco non è
+ * stato personalizzato, nasce dai suggerimenti predefiniti più i nomi già usati.
+ */
+export function subcategoryList(ledger: Ledger, labelId: string): string[] {
+  const label = ledger.labels.find((item) => item.id === labelId);
+  if (label?.value.subcategories) return [...label.value.subcategories];
+  const suggestions: readonly string[] = EXPENSE_OPTIONS.find(([key]) => key === labelId)?.[2] ?? [];
+  const list = [...suggestions];
+  const used = ledger.movements.flatMap(({ value }) => (
     value.type === "expense" && value.labelId === labelId && value.subcategory ? [value.subcategory] : []
-  ));
-  return [...new Set([...suggestions, ...entered])].sort((a, b) => a.localeCompare(b, "it"));
+  )).sort((a, b) => a.localeCompare(b, "it"));
+  for (const name of used) if (!list.some((item) => sameName(item, name))) list.push(name);
+  return list;
+}
+
+export function subcategoryUsage(ledger: Ledger, labelId: string, name: string) {
+  return ledger.movements.filter(({ value }) => value.type === "expense" && value.labelId === labelId && sameName(value.subcategory, name));
 }
 
 export function yearMonths(year: number) {
