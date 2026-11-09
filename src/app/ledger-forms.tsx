@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Calculator, HandCoins, Repeat, Trash2, X } from "lucide-react";
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Calculator, HandCoins, Plus, Repeat, Split, Trash2, X } from "lucide-react";
 import {
-  ENTRY_TYPES, INTEREST_LABEL, METHOD_LABELS, activeLabels, balanceId, money, parseMoney, sameName, subcategoryList,
-  type Account, type Balance, type Ledger, type LedgerRecord, type Movement, type MovementType, type Schedule,
+  ENTRY_TYPES, INTEREST_LABEL, METHOD_LABELS, activeLabels, allTags, balanceId, money, parseMoney, sameName, subcategoryList,
+  type Account, type Balance, type Ledger, type LedgerRecord, type Movement, type MovementType, type Part, type Schedule,
 } from "../lib/ledger";
 import { debtDetails, linkedRecurring, splitRepayment } from "../lib/debts";
+import { TagInput } from "./tags";
+
+type PartDraft = { key: number; target: string; subcategory: string; amount: string };
+let partKey = 0;
 
 export const TYPE_ICONS = { income: ArrowDownLeft, expense: ArrowUpRight, transfer: ArrowLeftRight, repayment: HandCoins };
 
@@ -95,11 +99,19 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
   const [newName, setNewName] = useState("");
   const [repeat, setRepeat] = useState(mode === "recurring");
   const [validation, setValidation] = useState("");
+  const [tags, setTags] = useState<string[]>(value?.tags ?? []);
+  // Spesa divisa: ogni parte va a una categoria («label:id») o a un credito («credit:id»).
+  const [parts, setParts] = useState<PartDraft[] | null>(() => (value?.type === "expense" && value.parts
+    ? value.parts.map((part) => ({ key: partKey++, target: part.creditId ? `credit:${part.creditId}` : `label:${part.labelId}`, subcategory: part.subcategory ?? "", amount: amountInput(part.amount) }))
+    : null));
+  const receivables = ledger.accounts.filter((account) => account.value.type === "receivable" && (!account.value.archived || (value?.type === "expense" && value.parts?.some((part) => part.creditId === account.id))));
   const keepLabel = value && value.type !== "transfer" ? value.labelId : null;
   const choices = activeLabels(ledger, type === "income" ? "income" : "expense", keepLabel);
   // (per le rate la categoria degli interessi arriva dal debito)
   const keepAccounts = [value?.accountId ?? null, value?.type === "transfer" ? value.toAccountId : null];
-  const accounts = ledger.accounts.filter((account) => account.value.type !== "debt" && (!account.value.archived || keepAccounts.includes(account.id)));
+  // I crediti (soldi che ti devono) si muovono solo con i trasferimenti.
+  const accounts = ledger.accounts.filter((account) => account.value.type !== "debt" && (type === "transfer" || account.value.type !== "receivable")
+    && (!account.value.archived || keepAccounts.includes(account.id)));
 
   function chooseDebt(id: string) {
     setDebtId(id);
@@ -127,6 +139,9 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
       notes: field(data, "notes"),
       accountId: field(data, "account") || null,
       amount,
+      ...(tags.length ? { tags } : {}),
+      // Un movimento importato resta collegato alla sua importazione (per annullarla e per le regole).
+      ...(value?.origin && !fresh && mode === "movement" ? { origin: value.origin } : {}),
     };
     let movement: Movement["value"];
     let added: string | null = null;
@@ -160,6 +175,23 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
         return;
       }
       movement = { ...common, type, accountId: common.accountId, toAccountId };
+    } else if (type === "expense" && parts) {
+      const built: Part[] = [];
+      for (const draft of parts) {
+        const cents = parseMoney(draft.amount);
+        if (!draft.target || cents === null || cents <= 0) {
+          setValidation("Ogni parte ha bisogno di una categoria (o un credito) e di un importo maggiore di zero.");
+          return;
+        }
+        const [kind, targetId] = draft.target.split(":");
+        built.push(kind === "credit" ? { amount: cents, creditId: targetId } : { amount: cents, labelId: targetId, ...(draft.subcategory ? { subcategory: draft.subcategory } : {}) });
+      }
+      const total = built.reduce((sum, part) => sum + part.amount, 0);
+      if (built.length < 2) { setValidation("Una spesa divisa ha almeno due parti."); return; }
+      if (total !== amount) { setValidation(`Le parti sommano ${money(total)}: devono fare ${money(amount)}.`); return; }
+      const first = built.find((part) => part.labelId);
+      if (!first?.labelId) { setValidation("Almeno una parte deve andare a una categoria di spesa: il resto può andare a un credito."); return; }
+      movement = { ...common, type, labelId: first.labelId, subcategory: first.subcategory ?? "", method: field(data, "method"), parts: built };
     } else if (type === "expense") {
       let chosen = subcategory;
       if (subcategory === NEW_SUBCATEGORY) {
@@ -203,7 +235,7 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
           return <button key={entryType} type="button" aria-pressed={type === entryType}
             onClick={() => {
               if (type === entryType) return;
-              setType(entryType); setLabelId(""); setSubcategory(""); setNewName(""); setValidation(""); setDebtId(""); setManualSplit(false);
+              setType(entryType); setLabelId(""); setSubcategory(""); setNewName(""); setValidation(""); setDebtId(""); setManualSplit(false); setParts(null);
             }}
             disabled={busy}>
             <Icon size={16} />{ENTRY_TYPES[entryType]}
@@ -243,7 +275,45 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
           {autoSplit.residual !== null && <small>{autoSplit.estimated ? "Residuo stimato dal piano" : "Residuo"} prima di questo pagamento: {money(autoSplit.residual)} · dopo: {money(autoSplit.residual - autoSplit.principal)}</small>}
         </p> : <p><small>Inserisci importo e data per vedere la divisione.</small></p>}
       </div>}
-      {type !== "transfer" && type !== "repayment" && <div className={type === "expense" ? "form-grid" : undefined}>
+      {type === "expense" && parts && <fieldset className="split-parts">
+        <legend><Split size={15} /> Spesa divisa</legend>
+        {parts.map((part, index) => {
+          const labelTarget = part.target.startsWith("label:") ? part.target.slice(6) : "";
+          const partSubs = labelTarget ? subcategoryList(ledger, labelTarget) : [];
+          const update = (change: Partial<PartDraft>) => setParts((list) => list && list.map((item) => (item.key === part.key ? { ...item, ...change } : item)));
+          return <div className="split-part" key={part.key}>
+            <select value={part.target} aria-label={`Parte ${index + 1}: categoria o credito`} onChange={(event) => update({ target: event.target.value, subcategory: "" })}>
+              <option value="">Categoria o credito</option>
+              <optgroup label="Categorie di spesa">{choices.map((label) => <option key={label.id} value={`label:${label.id}`}>{label.value.name}</option>)}</optgroup>
+              {receivables.length > 0 && <optgroup label="Anticipato per altri (credito)">{receivables.map((account) => <option key={account.id} value={`credit:${account.id}`}>{account.value.name}</option>)}</optgroup>}
+            </select>
+            {labelTarget ? <select value={part.subcategory} aria-label={`Parte ${index + 1}: sottocategoria`} onChange={(event) => update({ subcategory: event.target.value })}>
+              <option value="">Nessuna sottocategoria</option>
+              {partSubs.map((item) => <option key={item} value={item}>{item}</option>)}
+              {part.subcategory && !partSubs.includes(part.subcategory) && <option value={part.subcategory}>{part.subcategory}</option>}
+            </select> : <span className="split-part-note">{part.target.startsWith("credit:") ? "Te li deve restituire" : ""}</span>}
+            <input inputMode="decimal" placeholder="0,00" value={part.amount} aria-label={`Parte ${index + 1}: importo`} onChange={(event) => update({ amount: event.target.value })} />
+            <button type="button" className="icon-button quiet" aria-label={`Togli la parte ${index + 1}`} onClick={() => setParts((list) => {
+              const next = list ? list.filter((item) => item.key !== part.key) : null;
+              return next && next.length >= 1 ? next : null;
+            })}><X size={15} /></button>
+          </div>;
+        })}
+        {(() => {
+          const total = parts.reduce((sum, part) => sum + (parseMoney(part.amount) ?? 0), 0);
+          const left = (amountValue ?? 0) - total;
+          return <div className="split-foot">
+            <button type="button" className="text-button" onClick={() => setParts((list) => [...(list ?? []), { key: partKey++, target: "", subcategory: "", amount: left > 0 ? amountInput(left) : "" }])} disabled={parts.length >= 10}><Plus size={14} /> Aggiungi parte</button>
+            <span className={left === 0 ? "split-left ok" : "split-left"}>{left === 0 ? "Parti complete" : left > 0 ? `Da assegnare: ${money(left)}` : `In più: ${money(-left)}`}</span>
+          </div>;
+        })()}
+        <p className="field-note">Le parti verso un credito non contano come spesa: aumentano quanto ti devono.</p>
+      </fieldset>}
+      {type === "expense" && !parts && labelId && mode !== "recurring" && <button type="button" className="text-button split-open" onClick={() => setParts([
+        { key: partKey++, target: `label:${labelId}`, subcategory: subcategory === NEW_SUBCATEGORY ? "" : subcategory, amount: amountText },
+        { key: partKey++, target: "", subcategory: "", amount: "" },
+      ])}><Split size={14} /> Dividi la spesa tra più categorie o anticipata per altri</button>}
+      {type !== "transfer" && type !== "repayment" && !(type === "expense" && parts) && <div className={type === "expense" ? "form-grid" : undefined}>
         <label>{type === "income" ? "Fonte di entrata" : "Categoria"}
           <select value={labelId} onChange={(event) => { setLabelId(event.target.value); setSubcategory(""); setNewName(""); }} required>
             <option value="">Scegli una voce</option>
@@ -284,6 +354,8 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
       <label>Note <span className="optional">facoltative</span>
         <textarea name="notes" rows={2} maxLength={1200} placeholder="Aggiungi un dettaglio" defaultValue={value?.notes ?? ""} />
       </label>
+      <div className="field-block"><span className="field-label">Tag <span className="optional">facoltativi</span></span>
+        <TagInput value={tags} onChange={setTags} suggestions={allTags(ledger).map((item) => item.name)} /></div>
       {mode === "movement" && (!value || fresh) && !(type === "repayment" && debt && linkedRecurring(ledger, debt.id)) && <label className="check-row">
         <input type="checkbox" checked={repeat} onChange={(event) => setRepeat(event.target.checked)} />
         <span><strong>Ripeti questo movimento</strong><small>Le prossime scadenze ti verranno proposte da confermare.</small></span>

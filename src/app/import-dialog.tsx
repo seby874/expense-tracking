@@ -1,7 +1,9 @@
-import { useState, type ChangeEvent } from "react";
-import { CircleAlert, FileUp } from "lucide-react";
+import { useMemo, useState, type ChangeEvent } from "react";
+import { CircleAlert, FileUp, Landmark } from "lucide-react";
 import { planImport, type ImportPlan } from "../lib/data-io";
-import type { LedgerRecord, Mutation } from "../lib/ledger";
+import { deriveLedger, type LedgerRecord, type Mutation } from "../lib/ledger";
+import { readStatementFile, type BankStatement } from "../lib/bank/statements";
+import { BankImport } from "./bank-import";
 import { FormError } from "./ledger-forms";
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
@@ -17,22 +19,43 @@ export function ImportDialog({ records, busy, error, progress, onCommit, onCance
   const [plan, setPlan] = useState<ImportPlan | null>(null);
   const [fileName, setFileName] = useState("");
   const [readError, setReadError] = useState("");
+  const [reading, setReading] = useState(false);
+  const [statements, setStatements] = useState<BankStatement[] | null>(null);
+  const ledger = useMemo(() => deriveLedger(records), [records]);
 
   async function choose(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
+    const files = [...(event.target.files ?? [])];
+    event.target.value = "";
     setPlan(null);
     setReadError("");
-    if (!file) return;
-    if (file.size > MAX_FILE_BYTES) {
+    setStatements(null);
+    if (!files.length) return;
+    if (files.some((file) => file.size > MAX_FILE_BYTES)) {
       setReadError("Il file è troppo grande (massimo 15 MB).");
       return;
     }
-    setFileName(file.name);
+    setFileName(files.map((file) => file.name).join(", "));
+    setReading(true);
     try {
-      setPlan(planImport(file.name, await file.text(), records));
+      const results = await Promise.all(files.map((file) => readStatementFile(file)));
+      const failed = results.find((result) => result.kind === "error");
+      if (failed && failed.kind === "error") return setReadError(failed.message);
+      const banks = results.flatMap((result) => (result.kind === "bank" ? [result.statement] : []));
+      const apps = results.flatMap((result, index) => (result.kind === "app" ? [{ name: files[index].name, text: result.text }] : []));
+      if (banks.length && apps.length) return setReadError("Importa gli estratti conto e i file dell’app separatamente.");
+      if (apps.length > 1) return setReadError("Scegli un solo file dell’app alla volta.");
+      if (apps.length) setPlan(planImport(apps[0].name, apps[0].text, records));
+      else setStatements(banks);
     } catch {
       setReadError("Impossibile leggere il file.");
+    } finally {
+      setReading(false);
     }
+  }
+
+  if (statements) {
+    return <BankImport ledger={ledger} statements={statements} busy={busy} error={error} progress={progress}
+      onCommit={onCommit} onBack={() => { setStatements(null); setFileName(""); }} />;
   }
 
   const writes = plan?.mutations.length ?? 0;
@@ -59,11 +82,15 @@ export function ImportDialog({ records, busy, error, progress, onCommit, onCance
     : plan ? `${count(plan.newMovements, "movimento importato", "movimenti importati")}.` : "";
 
   return <div className="editor import-dialog">
-    <p className="form-help">Scegli un file esportato da Expense Tracking: <strong>movimenti</strong> o <strong>saldi</strong> in CSV, oppure un <strong>backup completo</strong> (.json). Prima di importare vedrai cosa cambia; nulla viene cancellato.</p>
+    <div className="import-kinds">
+      <div><Landmark size={18} /><p><strong>Estratti conto della banca</strong><span>Revolut (CSV), Fineco (PDF) o il CSV di un’altra banca. Puoi sceglierne più di uno insieme: i trasferimenti tra i tuoi conti vengono abbinati.</span></p></div>
+      <div><FileUp size={18} /><p><strong>File di Expense Tracking</strong><span>Movimenti o saldi in CSV, oppure un backup completo (.json).</span></p></div>
+    </div>
+    <p className="form-help">Prima di importare vedrai l’anteprima di ogni riga; nulla viene cancellato. I file restano sul tuo dispositivo: vengono letti qui, nel browser.</p>
     <label className="file-picker">
       <FileUp size={19} />
-      <span>{fileName || "Scegli il file…"}</span>
-      <input type="file" accept=".csv,.json,text/csv,application/json" onChange={(event) => void choose(event)} disabled={busy} />
+      <span>{reading ? "Lettura in corso…" : fileName || "Scegli uno o più file…"}</span>
+      <input type="file" multiple accept=".csv,.json,.pdf,text/csv,application/json,application/pdf" onChange={(event) => void choose(event)} disabled={busy || reading} />
     </label>
     <FormError message={readError} />
     {plan && <div className="import-summary" role="status">

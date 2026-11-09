@@ -65,5 +65,19 @@ export function sampleLedger(): LedgerRecord[] {
     template: { type: "repayment", date: loan.firstDate, title: "Rata Finanziamento auto", amount: loan.installment, principal: loan.installment, interest: 0, debtId: "demo-car", accountId: "fineco", labelId: INTEREST_LABEL, notes: "" },
     schedule: { frequency: "monthly", every: 1, start: loan.firstDate, end: plan[plan.length - 1].date ?? "", done: 17 },
   } });
+  // Tag liberi: un viaggio con spese di categorie diverse.
+  const trip = ["Viaggio a Roma"];
+  add({ type: "expense", date: "2027-03-12", title: "Treno per Roma", amount: 4590, labelId: "travel", subcategory: "Biglietti", accountId: "revolut", method: "Carta", notes: "", tags: trip });
+  add({ type: "expense", date: "2027-03-12", title: "B&B Trastevere", amount: 11800, labelId: "travel", subcategory: "Alloggio", accountId: "revolut", method: "Carta", notes: "", tags: trip });
+  add({ type: "expense", date: "2027-03-13", title: "Pranzo al Pantheon", amount: 2400, labelId: "out", subcategory: "Ristorante", accountId: "revolut", method: "Carta", notes: "", tags: trip });
+  // Crediti: una cena pagata anche per un amico (spesa divisa) e un piccolo prestito.
+  extra.push(
+    { kind: "account", id: "demo-marco", version: newId(), value: { name: "Marco", type: "receivable", credit: { start: "2027-02-20", note: "Cena e biglietti del concerto" } } },
+    { kind: "balance", id: balanceId("demo-marco", "2027-01"), version: newId(), value: { accountId: "demo-marco", month: "2027-01", amount: 0 } },
+  );
+  add({ type: "expense", date: "2027-02-20", title: "Cena di compleanno", amount: 7200, labelId: "out", subcategory: "Ristorante", accountId: "revolut", method: "Carta", notes: "",
+    parts: [{ amount: 3600, labelId: "out", subcategory: "Ristorante" }, { amount: 3600, creditId: "demo-marco" }] });
+  add({ type: "transfer", date: "2027-03-02", title: "Prestito a Marco", amount: 5000, accountId: "revolut", toAccountId: "demo-marco", notes: "" });
+  add({ type: "transfer", date: "2027-04-08", title: "Restituzione da Marco", amount: 4000, accountId: "demo-marco", toAccountId: "revolut", notes: "" });
   return [...snapshots, ...extra, ...movements];
 }

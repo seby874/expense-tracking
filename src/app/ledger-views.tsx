@@ -2,14 +2,17 @@ import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "re
 import {
   Archive, ArrowDownLeft, ArrowDownToLine, ArrowRight, ArrowUpRight, BarChart3, ChartNoAxesCombined, ChevronRight,
   CircleDollarSign, CircleHelp, ClipboardList, CloudOff, DatabaseBackup, FileUp, KeyRound, Landmark, Layers3, Monitor, Moon,
-  Pencil, Plus, RotateCw, Search, Sun, Timer, TrendingUp, Wallet, WalletCards,
+  Handshake, Pencil, Plus, RotateCw, Search, Sun, Tag, Timer, TrendingUp, Wallet, WalletCards,
 } from "lucide-react";
 import {
   ACCOUNT_TYPES, ENTRY_TYPES, MONTHS, accountBalances, activeAccounts, lastRecordedMonth, mix, money, monthLabel,
   monthName, netWorth, periodMovements, rate, shortDate, subcategoryList, subcategoryUsage, totals, yearlyFlow, yearMonths,
-  type Account, type Label, type Ledger, type Movement, type MovementType,
+  allTags, expenseParts, hasTag,
+  type Account, type ImportBatch, type Label, type Ledger, type Movement, type MovementType, type Mutation, type Rule,
 } from "../lib/ledger";
 import { TYPE_ICONS } from "./ledger-forms";
+import { ImportsPanel, RulesPanel, TagsPanel } from "./settings-extra";
+import { TagChips } from "./tags";
 import { IDLE_OPTIONS } from "../lib/config";
 import { idleLabel } from "../lib/session";
 import { readOffline, readTheme, saveOffline, saveTheme, type ThemeMode } from "../lib/preferences";
@@ -162,12 +165,13 @@ export function Overview({ ledger, year, period, month, monthChange, onEdit, onN
   const summary = totals(items);
   const accounts = accountBalances(ledger, month);
   const visibleAccounts = accounts.filter(({ account, amount }) => (account.value.type === "cash" || account.value.type === "asset") && (!account.value.archived || (amount !== null && amount !== 0)));
-  const groupTotal = (type: "investment" | "debt") => {
+  const groupTotal = (type: "investment" | "debt" | "receivable") => {
     const list = accounts.filter(({ account, amount }) => account.value.type === type && amount !== null);
     return list.length ? list.reduce((sum, { amount }) => sum + (amount ?? 0), 0) : null;
   };
   const invested = groupTotal("investment");
   const owed = groupTotal("debt");
+  const lent = groupTotal("receivable");
   const known = accounts.filter(({ amount }) => amount !== null).length;
   const periodName = period.length === 4 ? `Anno ${year}` : monthLabel(period);
   return <>
@@ -208,7 +212,9 @@ export function Overview({ ledger, year, period, month, monthChange, onEdit, onN
             <span className="account-mini-name"><strong>Investimenti</strong><small>Valore stimato</small></span><b>{money(invested)}</b></li>}
           {owed !== null && <li><span className="account-symbol account-debt"><CircleDollarSign size={17} /></span>
             <span className="account-mini-name"><strong>Debiti</strong><small>Residuo da rimborsare</small></span><b className="amount-expense">−{money(owed)}</b></li>}
-          {visibleAccounts.slice(0, invested !== null || owed !== null ? 3 : 4).map(({ account, amount }) => <li key={account.id}>
+          {lent !== null && lent !== 0 && <li><span className="account-symbol account-invest"><Handshake size={17} /></span>
+            <span className="account-mini-name"><strong>Crediti</strong><small>Ti devono</small></span><b>{money(lent)}</b></li>}
+          {visibleAccounts.slice(0, Math.max(2, 4 - [invested, owed, lent || null].filter((value) => value !== null).length)).map(({ account, amount }) => <li key={account.id}>
             <span className={`account-symbol account-${account.id}`}><AccountGlyph account={account} /></span>
             <span className="account-mini-name"><strong>{account.value.name}</strong><small>{ACCOUNT_TYPES[account.value.type]}</small></span>
             {amount === null ? <button className="text-button" type="button" onClick={() => onBalance(account)} aria-label={`Registra saldo ${account.value.name}`}>Registra</button> : <b>{money(amount)}</b>}
@@ -228,8 +234,8 @@ export function AccountGlyph({ account }: { account: Account }) {
   return <WalletCards size={18} />;
 }
 
-function MovementTable({ items, ledger, onEdit, compact = false }: {
-  items: Movement[]; ledger: Ledger; onEdit: (movement: Movement) => void; compact?: boolean;
+function MovementTable({ items, ledger, onEdit, compact = false, onTag }: {
+  items: Movement[]; ledger: Ledger; onEdit: (movement: Movement) => void; compact?: boolean; onTag?: (tag: string) => void;
 }) {
   const labels = new Map(ledger.labels.map((label) => [label.id, label.value.name]));
   const accounts = new Map(ledger.accounts.map((account) => [account.id, account.value.name]));
@@ -239,15 +245,18 @@ function MovementTable({ items, ledger, onEdit, compact = false }: {
       <tbody>{items.map((entry) => {
         const value = entry.value;
         const Icon = TYPE_ICONS[value.type];
+        const split = value.type === "expense" && value.parts;
         const category = value.type === "transfer" ? ENTRY_TYPES.transfer
           : value.type === "repayment" ? `${ENTRY_TYPES.repayment} · ${accounts.get(value.debtId) ?? "debito"}`
+          : split ? `Spesa divisa · ${value.parts!.length} parti`
           : (labels.get(value.labelId) ?? ENTRY_TYPES[value.type]);
         const account = value.accountId ? accounts.get(value.accountId) : null;
-        const subtitle = value.type === "expense" ? value.subcategory
+        const subtitle = split ? value.parts!.map((part) => `${part.creditId ? `Credito ${accounts.get(part.creditId) ?? ""}` : labels.get(part.labelId!) ?? ""} ${money(part.amount)}`).join(" · ")
+          : value.type === "expense" ? value.subcategory
           : value.type === "repayment" ? `Capitale ${money(value.principal)} · Interessi ${money(value.interest)}` : "";
         return <tr key={entry.id}>
           <td><div className="movement-name"><span className={`entry-icon entry-${value.type}`}><Icon size={16} /></span>
-            <span><strong>{value.title}</strong>{compact && <small>{category}</small>}{!compact && value.notes && <small className="truncate" title={value.notes}>{value.notes}</small>}</span>
+            <span><strong>{value.title}</strong>{!compact && <TagChips tags={value.tags} onClick={onTag} />}{compact && <small>{category}</small>}{!compact && value.notes && <small className="truncate" title={value.notes}>{value.notes}</small>}</span>
           </div></td>
           <td className="table-muted">{shortDate(value.date)}</td>
           {!compact && <>
@@ -269,14 +278,17 @@ export function Movements({ ledger, period, onEdit, onNew, onExport }: {
   const [query, setQuery] = useState("");
   const [type, setType] = useState<MovementType | "">("");
   const [label, setLabel] = useState("");
+  const [tag, setTag] = useState("");
   const [limit, setLimit] = useState(25);
   const items = periodMovements(ledger, period);
   const labels = ledger.labels.filter((item) => item.value.type === type);
+  const tags = allTags(ledger);
   const search = query.trim().toLocaleLowerCase("it");
   const filtered = items.filter(({ value }) => {
     if (type && value.type !== type) return false;
-    if (label && (value.type === "transfer" || value.labelId !== label)) return false;
-    const keywords = value.type === "expense" ? value.subcategory + " " + value.method : "";
+    if (label && (value.type === "transfer" || (value.labelId !== label && !(value.type === "expense" && value.parts?.some((part) => part.labelId === label))))) return false;
+    if (tag && !hasTag(value, tag)) return false;
+    const keywords = (value.type === "expense" ? value.subcategory + " " + value.method : "") + " " + (value.tags ?? []).join(" ") + " " + (value.origin?.text ?? "");
     return !search || (value.title + " " + value.notes + " " + keywords).toLocaleLowerCase("it").includes(search);
   });
 
@@ -299,9 +311,21 @@ export function Movements({ ledger, period, onEdit, onNew, onExport }: {
           <option value="">{type === "income" ? "Tutte le fonti" : "Tutte le categorie"}</option>
           {labels.map((item) => <option value={item.id} key={item.id}>{item.value.name}{item.value.archived ? " (archiviata)" : ""}</option>)}
         </select></label>}
+      {tags.length > 0 && <label><span className="sr-only">Tag</span>
+        <select value={tag} onChange={(event) => { setTag(event.target.value); setLimit(25); }}>
+          <option value="">Tutti i tag</option>
+          {tags.map((item) => <option value={item.name} key={item.name}>#{item.name}</option>)}
+        </select></label>}
     </div>
+    {tag && (() => {
+      const spent = (list: Movement[]) => list.reduce((sum, { value }) => sum + (value.type === "expense" ? expenseParts(value).reduce((total, part) => total + part.amount, 0) : value.type === "repayment" ? value.interest : 0), 0);
+      const everywhere = ledger.movements.filter(({ value }) => hasTag(value, tag));
+      return <p className="tag-summary"><Tag size={14} /> #{tag}: {money(spent(filtered))} di spese nel periodo
+        {everywhere.length !== filtered.length && ` · ${money(spent(everywhere))} in tutto (${everywhere.length} movimenti)`}
+      <button type="button" className="text-button" onClick={() => setTag("")}>Togli il filtro</button></p>;
+    })()}
     {filtered.length
-      ? <MovementTable items={filtered.slice(0, limit)} ledger={ledger} onEdit={onEdit} />
+      ? <MovementTable items={filtered.slice(0, limit)} ledger={ledger} onEdit={onEdit} onTag={(value) => { setTag(value); setLimit(25); }} />
       : <Empty icon={<ClipboardList size={24} />} title={items.length ? "Nessun risultato" : "Nessun movimento nel periodo"}
         action={items.length ? undefined : <button type="button" className="button secondary" onClick={onNew}><Plus size={17} /> Aggiungi movimento</button>}>
         {items.length ? "Modifica la ricerca o i filtri." : "Aggiungi un’entrata, una spesa o un trasferimento."}
@@ -425,6 +449,32 @@ function Compare({ ledger, year, period, type }: Omit<PeriodProps, "month" | "mo
   </section>;
 }
 
+function TagReport({ ledger, year, period }: Pick<PeriodProps, "ledger" | "year" | "period">) {
+  const items = periodMovements(ledger, period);
+  const rows = new Map<string, { name: string; expense: number; income: number; count: number }>();
+  for (const { value } of items) {
+    for (const tag of value.tags ?? []) {
+      const key = tag.toLocaleLowerCase("it");
+      const row = rows.get(key) ?? { name: tag, expense: 0, income: 0, count: 0 };
+      row.count++;
+      if (value.type === "income") row.income += value.amount;
+      if (value.type === "expense") row.expense += expenseParts(value).reduce((sum, part) => sum + part.amount, 0);
+      if (value.type === "repayment") row.expense += value.interest;
+      rows.set(key, row);
+    }
+  }
+  const list = [...rows.values()].sort((a, b) => b.expense - a.expense || b.income - a.income);
+  if (!list.length) return null;
+  return <section className="panel tag-report">
+    <PanelTitle title="Per tag" subtitle={`Quanto è costato ogni evento o progetto · ${period.length === 4 ? `anno ${year}` : monthLabel(period)}`} />
+    <div className="table-scroll"><table className="data-table">
+      <thead><tr><th scope="col">Tag</th><th scope="col" className="number">Movimenti</th><th scope="col" className="number">Spese</th><th scope="col" className="number">Entrate</th></tr></thead>
+      <tbody>{list.map((row) => <tr key={row.name}><td><span className="tag-chip small"><Tag size={10} />{row.name}</span></td>
+        <td className="number">{row.count}</td><td className="number">{money(row.expense)}</td><td className="number">{money(row.income)}</td></tr>)}</tbody>
+    </table></div>
+  </section>;
+}
+
 export function Reports({ ledger, year, period }: Pick<PeriodProps, "ledger" | "year" | "period">) {
   const [type, setType] = useState<"expense" | "income">("expense");
   const groups = mix(periodMovements(ledger, period), ledger.labels, type, ledger.accounts).sort((a, b) => b.amount - a.amount);
@@ -468,6 +518,7 @@ export function Reports({ ledger, year, period }: Pick<PeriodProps, "ledger" | "
         </table></div>
       </section>
     </div>
+    <TagReport ledger={ledger} year={year} period={period} />
   </>;
 }
 
@@ -582,9 +633,10 @@ function DevicePanel() {
   </section>;
 }
 
-export function Settings({ ledger, onLabel, onExport, onBalancesExport, onBackup, onImport, onDemo, session }: {
+export function Settings({ ledger, onLabel, onExport, onBalancesExport, onBackup, onImport, onDemo, session, onRule, onUndoImport, onCommit, busy }: {
   ledger: Ledger; onLabel: (type: "expense" | "income", label?: Label) => void;
   onExport: () => void; onBalancesExport: () => void; onBackup: () => void; onImport: () => void; onDemo: () => void; session: SessionInfo;
+  onRule: (rule?: Rule) => void; onUndoImport: (batch: ImportBatch) => void; onCommit: (actions: Mutation[], message: string) => void; busy: boolean;
 }) {
   return <>
     <div className="split settings-grid">
@@ -602,7 +654,10 @@ export function Settings({ ledger, onLabel, onExport, onBalancesExport, onBackup
         <button type="button" className="button secondary" onClick={onImport}><FileUp size={17} /> Importa</button>
         <button type="button" className="button secondary" onClick={onDemo}>Dati di esempio</button>
       </div>
-      <p className="panel-note"><CircleHelp size={16} /> Il backup completo (.json) contiene anche conti, categorie, sottocategorie e ricorrenti: è il file giusto per spostare tutto su un altro account.</p>
+      <p className="panel-note"><CircleHelp size={16} /> Il backup completo (.json) contiene anche conti, categorie, sottocategorie, ricorrenti e regole: è il file giusto per spostare tutto su un altro account.</p>
     </section>
+    <ImportsPanel ledger={ledger} onUndo={onUndoImport} />
+    <RulesPanel ledger={ledger} onRule={onRule} />
+    <TagsPanel ledger={ledger} onCommit={onCommit} busy={busy} />
   </>;
 }

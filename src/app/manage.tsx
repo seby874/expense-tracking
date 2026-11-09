@@ -213,6 +213,9 @@ function swapAccount(value: Movement["value"], from: string, to: string): Moveme
   if (value.type === "transfer") {
     return { ...value, accountId: value.accountId === from ? to : value.accountId, toAccountId: value.toAccountId === from ? to : value.toAccountId };
   }
+  if (value.type === "expense" && value.parts) {
+    return { ...value, accountId: value.accountId === from ? to : value.accountId, parts: value.parts.map((part) => (part.creditId === from ? { ...part, creditId: to } : part)) };
+  }
   return { ...value, accountId: value.accountId === from ? to : value.accountId };
 }
 
@@ -292,7 +295,11 @@ export function RemoveDialog({ ledger, target, busy, error, onCommit, onCancel }
   const recurringLinked = used.recurring.filter((recurring) => !own.some((item) => item.id === recurring.id));
   const linked = used.movements.length + recurringLinked.length;
   const alternatives = isAccount
-    ? activeAccounts(ledger).filter((account) => account.id !== target.id && account.value.type !== "debt" && ((target as Account).value.type === "investment") === (account.value.type === "investment"))
+    ? activeAccounts(ledger).filter((account) => {
+      // Si sposta solo tra voci della stessa famiglia: conti con conti, investimenti con investimenti, crediti con crediti.
+      const family = (type: string) => (type === "investment" || type === "receivable" || type === "debt" ? type : "money");
+      return account.id !== target.id && account.value.type !== "debt" && family((target as Account).value.type) === family(account.value.type);
+    })
     : activeLabels(ledger, (target as Label).value.type).filter((label) => label.id !== target.id);
   const [choice, setChoice] = useState<"archive" | "move">(linked ? "archive" : "move");
   // I rimborsi di un debito non si possono spostare su un altro: resta solo l'archiviazione.
@@ -322,6 +329,10 @@ export function RemoveDialog({ ledger, target, busy, error, onCommit, onCancel }
         let value = v;
         if (isAccount) {
           value = swapAccount(v, target.id, destination);
+        } else if (v.type === "expense" && v.parts) {
+          const parts = v.parts.map((part) => (part.labelId === target.id ? { ...part, labelId: destination } : part));
+          value = { ...v, parts, labelId: parts.find((part) => part.labelId)?.labelId ?? destination };
+          for (const part of parts) if (part.labelId === destination && part.subcategory && destinationLabel) newSubcategories.push(part.subcategory);
         } else if (v.type !== "transfer") {
           value = { ...v, labelId: destination };
           if (value.type === "expense" && value.subcategory && destinationLabel) newSubcategories.push(value.subcategory);

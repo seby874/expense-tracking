@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import {
   INITIAL_YEAR, MONTHS, deriveLedger, lastRecordedMonth, monthLabel, recordSchema, subcategoryList,
-  newId, todayInRome, type Account, type Balance, type Label, type LedgerRecord, type Movement, type Mutation, type Recurring,
+  newId, todayInRome, type Account, type Balance, type ImportBatch, type Label, type LedgerRecord, type Movement, type Mutation, type Recurring, type Rule,
 } from "../lib/ledger";
 import { readLedger, subscribePending, writeLedger, writeMany } from "../lib/local-ledger";
 import { offlineEnabled } from "../lib/firebase";
@@ -15,11 +15,14 @@ import { dueDates, dueItems, nextDate, occurrenceMovement, type DueItem } from "
 import { BalanceForm, FormError, Modal, MovementForm, type MovementResult } from "./ledger-forms";
 import { Movements, Overview, Reports, Settings, type SessionInfo } from "./ledger-views";
 import { Patrimonio, type PatrimonioTab } from "./patrimonio";
-import { DebtEditor, InvestmentEditor } from "./patrimonio-forms";
+import { CreditEditor, DebtEditor, InvestmentEditor } from "./patrimonio-forms";
 import { linkedRecurring, repaymentFor } from "../lib/debts";
 import { AccountEditor, ArchiveDialog, LabelEditor, RemoveDialog } from "./manage";
 import { DuePanel, RecurringPanel } from "./recurring";
 import { ImportDialog } from "./import-dialog";
+import { RuleEditor, UndoImportDialog } from "./settings-extra";
+import { QuickEntry } from "./quick-entry";
+import { learnFromEdit } from "../lib/bank/classify";
 import { APP_NAME } from "../lib/config";
 import { BrandName, Mark } from "./brand";
 
@@ -34,7 +37,7 @@ const SECTIONS = {
 const SECTION_COPY = {
   overview: "Entrate, spese e patrimonio in un unico riepilogo.",
   movements: "Registra, cerca e aggiorna entrate, spese e trasferimenti.",
-  accounts: "Conti, investimenti e debiti: quanto possiedi e quanto devi.",
+  accounts: "Conti, investimenti, crediti e debiti: quanto possiedi e quanto devi.",
   reports: "Scopri come si distribuiscono entrate e spese e confronta i mesi.",
   settings: "Categorie, sicurezza della sessione e copia dei tuoi dati.",
 };
@@ -57,7 +60,11 @@ type EditForm =
   | { type: "balance"; account: Account }
   | { type: "account"; id: string; initial?: Account }
   | { type: "label"; id: string; labelType: "expense" | "income"; initial?: Label }
-  | { type: "import" };
+  | { type: "import" }
+  | { type: "rule"; initial?: Rule }
+  | { type: "undo-import"; batch: ImportBatch }
+  | { type: "credit"; id: string; initial?: Account }
+  | { type: "quick"; kind: "expense" | "income" };
 type Form =
   | EditForm
   | { type: "delete"; record: Movement | Balance | Recurring; back: EditForm }
@@ -207,6 +214,20 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
   }, [load, form, demo]);
+  // Scorciatoie dell'icona sul telefono: ?nuovo=spesa / ?nuovo=entrata aprono l'inserimento veloce.
+  const shortcutDone = useRef(false);
+  useEffect(() => {
+    if (shortcutDone.current || status !== "ready") return;
+    shortcutDone.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const wanted = params.get("nuovo");
+    if (wanted !== "spesa" && wanted !== "entrata") return;
+    params.delete("nuovo");
+    const rest = params.toString();
+    window.history.replaceState(null, "", window.location.pathname + (rest ? `?${rest}` : "") + window.location.hash);
+    setFormError("");
+    setForm({ type: "quick", kind: wanted === "entrata" ? "income" : "expense" });
+  }, [status]);
   useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(""), 4000);
@@ -256,6 +277,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   function editAccount(initial?: Account) {
     if (initial?.value.type === "investment") return editInvestment(initial);
     if (initial?.value.type === "debt") return editDebt(initial);
+    if (initial?.value.type === "receivable") return editCredit(initial);
     open({ type: "account", id: initial?.id ?? newId(), initial });
   }
   function editLabel(labelType: "expense" | "income", initial?: Label) {
@@ -269,6 +291,18 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
     const recurring = linkedRecurring(ledger, debt.id);
     const next = recurring && !recurring.value.paused ? nextDate(recurring.value.schedule) : null;
     open({ type: "movement", id: newId(), preset: repaymentFor(ledger, debt, next && next <= today ? next : today) });
+  }
+  function quick(kind: "expense" | "income") { open({ type: "quick", kind }); }
+  function editCredit(initial?: Account) { open({ type: "credit", id: initial?.id ?? newId(), initial }); }
+  function creditMove(credit: Account, direction: "lend" | "back") {
+    // Il conto usato l'ultima volta con questo credito, altrimenti il primo conto di liquidità.
+    const last = ledger.movements.find(({ value }) => value.type === "transfer" && (value.accountId === credit.id || value.toAccountId === credit.id));
+    const lastOther = last?.value.type === "transfer" ? (last.value.accountId === credit.id ? last.value.toAccountId : last.value.accountId) : undefined;
+    const cash = ledger.accounts.find((account) => account.id === lastOther && !account.value.archived)
+      ?? ledger.accounts.find((account) => account.value.type === "cash" && !account.value.archived);
+    open({ type: "movement", id: newId(), preset: direction === "back"
+      ? { type: "transfer", date: today, title: `Restituzione da ${credit.value.name}`.slice(0, 160), amount: 0, accountId: credit.id, toAccountId: cash?.id ?? "", notes: "" }
+      : { type: "transfer", date: today, title: `Prestito a ${credit.value.name}`.slice(0, 160), amount: 0, accountId: cash?.id ?? "", toAccountId: credit.id, notes: "" } });
   }
   function contribute(investment: Account) {
     const from = ledger.accounts.find((account) => account.value.type === "cash" && !account.value.archived);
@@ -355,8 +389,13 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
         template: result.movement, schedule: { ...result.schedule, start: result.movement.date, done: 1 },
       } } });
     }
-    // Una rata registrata a mano nello stesso mese della prossima scadenza la segna come pagata.
+    // Correggere un movimento importato insegna la regola per la sua controparte.
     let note = "";
+    if (target.initial?.value.origin) {
+      const learned = learnFromEdit(ledger, target.initial.value, result.movement);
+      if (learned) { actions.push(learned); note = " Regola aggiornata per le prossime importazioni."; }
+    }
+    // Una rata registrata a mano nello stesso mese della prossima scadenza la segna come pagata.
     const movement = result.movement;
     if (!target.initial && movement.type === "repayment") {
       const linked = linkedRecurring(ledger, movement.debtId);
@@ -442,8 +481,11 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   const sectionTitle = SECTIONS[section].title;
   const presetDebt = form?.type === "movement" && form.preset?.type === "repayment" ? ledger.accounts.find((account) => account.id === (form.preset as { debtId: string }).debtId) : undefined;
   const flexiblePreset = presetDebt?.value.debt?.kind === "flexible";
+  const presetTransfer = form?.type === "movement" && form.preset?.type === "transfer" ? form.preset : null;
+  const presetCredit = presetTransfer ? ledger.accounts.find((account) => account.value.type === "receivable" && (account.id === presetTransfer.accountId || account.id === presetTransfer.toAccountId)) : undefined;
+  const presetTransferTitle = presetCredit ? (presetTransfer?.accountId === presetCredit.id ? "Restituzione · " : "Prestito · ") + presetCredit.value.name : null;
   const formTitle = form?.type === "movement" ? (form.initial ? "Modifica movimento" : form.preset?.type === "repayment" ? (flexiblePreset ? "Registra rimborso" : "Registra rata")
-    : form.preset?.type === "transfer" ? "Versamento" : "Nuovo movimento")
+    : form.preset?.type === "transfer" ? (presetTransferTitle ?? "Versamento") : "Nuovo movimento")
     : form?.type === "investment" ? (form.initial ? "Modifica investimento" : "Nuovo investimento")
     : form?.type === "debt" ? (form.initial ? "Modifica debito" : "Nuovo debito")
     : form?.type === "occurrence" ? "Registra ricorrente"
@@ -452,6 +494,10 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
     : form?.type === "account" ? (form.initial ? "Modifica conto" : "Nuovo conto")
     : form?.type === "label" ? (form.initial ? (form.labelType === "expense" ? "Modifica categoria" : "Modifica fonte") : form.labelType === "expense" ? "Nuova categoria" : "Nuova fonte")
     : form?.type === "import" ? "Importa dati"
+    : form?.type === "rule" ? (form.initial ? "Modifica regola" : "Nuova regola")
+    : form?.type === "undo-import" ? "Annulla importazione"
+    : form?.type === "credit" ? (form.initial ? "Modifica credito" : "Nuovo credito")
+    : form?.type === "quick" ? (form.kind === "income" ? "Entrata veloce" : "Spesa veloce")
     : form?.type === "archive" ? (form.target.value.archived ? "Ripristina" : "Archivia") + " · " + form.target.value.name
     : form?.type === "remove" ? "Elimina · " + form.target.value.name
     : "Elimina voce";
@@ -530,17 +576,20 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
         </>}
         {section === "accounts" && <Patrimonio ledger={ledger} year={year} month={month} monthChange={setPeriod}
           tab={patrimonioTab} onTab={setPatrimonioTab} onAccount={editAccount} onBalance={editBalance}
-          onInvestment={editInvestment} onDebt={editDebt} onRepay={repay} onContribute={contribute} />}
+          onInvestment={editInvestment} onDebt={editDebt} onRepay={repay} onContribute={contribute} onCredit={editCredit} onCreditMove={creditMove} />}
         {section === "reports" && <Reports {...{ ledger, year, period }} />}
         {section === "settings" && <Settings ledger={ledger} onLabel={editLabel} onExport={() => exportMovements(ledger.movements, true)}
-          onBalancesExport={exportBalances} onBackup={exportBackup} onImport={() => open({ type: "import" })} onDemo={toggleDemo} session={session} />}
+          onBalancesExport={exportBalances} onBackup={exportBackup} onImport={() => open({ type: "import" })} onDemo={toggleDemo} session={session}
+          onRule={(rule) => open({ type: "rule", initial: rule })} onUndoImport={(batch) => open({ type: "undo-import", batch })}
+          busy={busy} onCommit={(actions, message) => { void commit(actions, message, { closeForm: false }); }} />}
         <footer className="workspace-footer"><span>{APP_NAME}</span><span>{period.length === 4 ? "Anno " + period : monthLabel(period)}</span></footer>
       </main>
     </div>
+    {canEdit && !form && <button type="button" className="fab" aria-label="Spesa veloce" title="Spesa veloce" onClick={() => quick("expense")}><Plus size={26} /></button>}
     {toast && <div className="toast" role="status"><CircleCheck size={18} />{toast}</div>}
     {form && <Modal key={form.type + ("id" in form ? form.id : "")} title={formTitle} busy={busy} onClose={close}
       hint={form.type === "movement" ? (form.preset?.type === "repayment" ? (flexiblePreset ? "Inserisci quanto hai restituito: il residuo scende di tutto l’importo." : "Controlla importo e data: la divisione si aggiorna da sola.")
-          : form.preset?.type === "transfer" ? "Un trasferimento dal conto all’investimento: non conta come spesa." : "Inserisci i dettagli del movimento.")
+          : form.preset?.type === "transfer" ? (presetCredit ? "Un trasferimento tra il tuo conto e il credito: non è né spesa né entrata." : "Un trasferimento dal conto all’investimento: non conta come spesa.") : "Inserisci i dettagli del movimento.")
         : form.type === "occurrence" ? "Controlla i dati prima di registrare questa scadenza."
         : form.type === "recurring" ? "Le scadenze ti verranno proposte da confermare." : undefined}>
       {form.type === "movement" && <MovementForm busy={busy} error={formError} ledger={ledger} mode="movement"
@@ -566,6 +615,9 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       {form.type === "debt" && <DebtEditor {...commitProps} ledger={ledger} id={form.id} initial={form.initial}
         onArchive={(target) => sub((back) => ({ type: "archive", target, back }))}
         onRemove={(target) => sub((back) => ({ type: "remove", target, back }))} />}
+      {form.type === "credit" && <CreditEditor {...commitProps} ledger={ledger} id={form.id} initial={form.initial}
+        onArchive={(target) => sub((back) => ({ type: "archive", target, back }))}
+        onRemove={(target) => sub((back) => ({ type: "remove", target, back }))} />}
       {form.type === "account" && <AccountEditor {...commitProps} ledger={ledger} id={form.id} initial={form.initial}
         onArchive={(target) => sub((back) => ({ type: "archive", target, back }))}
         onRemove={(target) => sub((back) => ({ type: "remove", target, back }))} />}
@@ -573,6 +625,12 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
         onArchive={(target) => sub((back) => ({ type: "archive", target, back }))}
         onRemove={(target) => sub((back) => ({ type: "remove", target, back }))} />}
       {form.type === "import" && <ImportDialog {...commitProps} records={currentRecords} progress={progress} onCancel={close} />}
+      {form.type === "quick" && <QuickEntry ledger={ledger} kind={form.kind} today={today} busy={busy} error={formError}
+        onSave={(actions, message, again) => commit(actions, message, { closeForm: !again, jump: !again })}
+        onMore={(value) => { setFormError(""); setForm({ type: "movement", id: newId(), preset: value }); }} />}
+      {form.type === "rule" && <RuleEditor {...commitProps} ledger={ledger} initial={form.initial}
+        onRemove={(rule) => { void commit([{ op: "delete", kind: "rule", id: rule.id, version: rule.version ?? NO_VERSION }], "Regola eliminata."); }} />}
+      {form.type === "undo-import" && <UndoImportDialog {...commitProps} ledger={ledger} batch={form.batch} onCancel={close} />}
       {form.type === "archive" && <ArchiveDialog {...commitProps} ledger={ledger} target={form.target} month={month}
         onCancel={() => { setFormError(""); setForm(form.back); }} />}
       {form.type === "remove" && <RemoveDialog {...commitProps} ledger={ledger} target={form.target}

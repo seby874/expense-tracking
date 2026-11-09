@@ -8,6 +8,11 @@ App personale in italiano per registrare entrate, spese, trasferimenti, saldi de
 - **Patrimonio** in tre schede: **Conti** (liquidità e altri beni), **Investimenti** e **Debiti**.
 - **Investimenti**: valore aggiornato a mano («Aggiorna valore»), versamenti come trasferimenti da un conto («Versa»), versato, rendimento, composizione per tipo.
 - **Debiti**: finanziamenti a rata fissa (anche a tasso zero, come i micro-finanziamenti) e debiti flessibili (amici e parenti). Nella scheda del finanziamento, TAN, TAEG, spese per rata e una spiegazione con i calcoli del piano alla francese.
+- **Importazione degli estratti conto** (Revolut CSV, Fineco PDF, CSV di altre banche con colonne riconosciute da sole): conto, data, importo, tipo, categoria e sottocategoria proposti in un'anteprima da controllare. Riconosce trasferimenti tra i tuoi conti (anche dalle carte usate per le ricariche), prelievi, rimborsi e storni, rate dei finanziamenti e righe già importate; aggiorna i saldi di fine mese dal file. Le correzioni diventano **regole** per le volte successive (Impostazioni → Regole d’importazione) e ogni importazione si può **annullare**. I file vengono letti solo nel browser.
+- **Tag liberi** sui movimenti (es. un viaggio), con filtro, totale e riepilogo per tag in Analisi.
+- **Spesa divisa** tra più categorie, anche con una parte anticipata per qualcuno (va al suo credito).
+- **Crediti** in Patrimonio: soldi prestati o anticipati, con restituzioni.
+- **Inserimento veloce** dal telefono (pulsante + e scorciatoie «Nuova spesa» / «Nuova entrata» sull’icona dell’app installata).
 - Movimento **Rata**: dal conto esce la rata intera, il debito scende solo del capitale, interessi e spese contano come spesa (categoria «Interessi»). La divisione si calcola da sola dal residuo e si può correggere a mano. Le rate possono essere proposte ogni mese (automatico) oppure registrate o corrette a mano.
 - Accesso con email e password, con **Password dimenticata?** (email di ripristino).
 - Pagina interna per scegliere la nuova password, se nei modelli email di Firebase imposti l’URL dell’app come URL di azione.
@@ -35,6 +40,10 @@ src/
   app/import-dialog.tsx importazione CSV e ripristino backup
   lib/recurring.ts      calcolo delle scadenze
   lib/debts.ts          piano di ammortamento, divisione capitale/interessi, stato dei debiti
+  lib/bank/             lettura degli estratti conto (statements, pdf-lines), pulizia delle descrizioni (text), classificazione e regole (classify)
+  app/bank-import.tsx   anteprima dell’importazione degli estratti conto
+  app/quick-entry.tsx   inserimento veloce
+  app/settings-extra.tsx  regole, importazioni e tag in Impostazioni
   lib/investments.ts    valore, versato e rendimento degli investimenti
   lib/data-io.ts        esportazione, lettura CSV, piano d'importazione, backup
   lib/preferences.ts    tema e uso offline (per dispositivo)

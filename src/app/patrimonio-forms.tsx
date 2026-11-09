@@ -285,3 +285,66 @@ export function DebtEditor({ ledger, id, initial, busy, error, onCommit, onArchi
 }
 
 export type { LoanDetails };
+
+// ------------------------------------------------------------------ Credito
+
+export function CreditEditor({ ledger, id, initial, busy, error, onCommit, onArchive, onRemove }: {
+  ledger: Ledger; id: string; initial?: Account; busy: boolean; error: string;
+  onCommit: (actions: Mutation[], message: string) => void; onArchive: (account: Account) => void; onRemove: (account: Account) => void;
+}) {
+  const [validation, setValidation] = useState("");
+  const today = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Rome" }).format(new Date());
+  const payAccounts = ledger.accounts.filter((account) => (account.value.type === "cash" || account.value.type === "asset") && !account.value.archived);
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const name = field(data, "name");
+    const start = field(data, "start") || today;
+    if (ledger.accounts.some((account) => account.id !== id && sameName(account.value.name, name))) return setValidation("Esiste già un conto o credito con questo nome.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start)) return setValidation("La data non è valida.");
+    const record: Account = {
+      kind: "account", id, version: initial?.version ?? null,
+      value: { ...initial?.value, name, type: "receivable", credit: { start, note: field(data, "note").slice(0, 200) } },
+    };
+    const actions: Mutation[] = [{ op: "save", record }];
+    if (!initial) {
+      const amount = field(data, "amount") ? parseMoney(field(data, "amount")) : 0;
+      if (amount === null || amount < 0) return setValidation("L’importo non è valido.");
+      const from = field(data, "from");
+      // Si parte da zero il mese prima: il prestito è un trasferimento dal conto (o un saldo iniziale).
+      const month = start.slice(0, 7);
+      const [year, value] = month.split("-").map(Number);
+      const before = value === 1 ? `${year - 1}-12` : `${year}-${String(value - 1).padStart(2, "0")}`;
+      actions.push({ op: "save", record: { kind: "balance", id: balanceId(id, before), version: null, value: { accountId: id, month: before, amount: from ? 0 : amount } } });
+      if (from && amount > 0) {
+        actions.push({ op: "save", record: { kind: "movement", id: newId(), version: null, value: {
+          type: "transfer", date: start, title: `Prestito a ${name}`.slice(0, 160), amount, accountId: from, toAccountId: id, notes: "",
+        } } });
+      }
+    }
+    setValidation("");
+    onCommit(actions, initial ? "Credito aggiornato." : "Credito creato.");
+  }
+
+  return <form className="editor" onSubmit={submit}>
+    <p className="form-help">Soldi che hai prestato o anticipato per qualcuno. Restano nel tuo patrimonio finché non te li restituisce: non sono una spesa.</p>
+    <label>Chi ti deve i soldi<input name="name" defaultValue={initial?.value.name ?? ""} placeholder="Es. Marco" maxLength={100} required /></label>
+    <label>Note <span className="optional">facoltative</span><input name="note" maxLength={200} defaultValue={initial?.value.credit?.note ?? ""} placeholder="Es. biglietti del concerto" /></label>
+    <div className="form-grid">
+      <label>Dal<input name="start" type="date" min="1900-01-01" max="2100-12-31" defaultValue={initial?.value.credit?.start ?? today} required /></label>
+      {!initial && <label>Importo prestato <span className="optional">facoltativo</span><input name="amount" inputMode="decimal" placeholder="0,00" /></label>}
+    </div>
+    {!initial && <label>Uscito dal conto <span className="optional">facoltativo</span>
+      <select name="from" defaultValue={payAccounts[0]?.id ?? ""}>
+        <option value="">Nessuno (era già prestato)</option>
+        {payAccounts.map((account) => <option key={account.id} value={account.id}>{account.value.name}</option>)}
+      </select>
+      <span className="field-note">Con un conto viene registrato un trasferimento: il conto scende, il credito sale.</span></label>}
+    <FormError message={validation || error} />
+    <div className="modal-actions">
+      <ManageButtons account={initial} busy={busy} onArchive={onArchive} onRemove={onRemove} />
+      <Submit busy={busy} />
+    </div>
+  </form>;
+}

@@ -16,7 +16,7 @@ service cloud.firestore {
       let data = request.resource.data;
       return data.keys().hasOnly(['kind', 'id', 'version', 'value'])
         && data.keys().hasAll(['kind', 'id', 'version', 'value'])
-        && data.kind in ['movement', 'balance', 'account', 'label', 'recurring']
+        && data.kind in ['movement', 'balance', 'account', 'label', 'recurring', 'rule', 'import']
         && data.id is string
         && data.id.size() > 0
         && data.id.size() <= 73
@@ -24,7 +24,7 @@ service cloud.firestore {
         && data.version is string
         && data.version.size() == 36
         && data.value is map
-        && data.value.size() <= 12;
+        && data.value.size() <= 16;
     }
 
     match /users/{uid}/ledger/{entryId} {

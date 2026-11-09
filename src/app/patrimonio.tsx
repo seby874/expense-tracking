@@ -1,6 +1,6 @@
 import { useId, type ReactNode } from "react";
 import {
-  Archive, CalendarClock, ChartNoAxesCombined, CircleHelp, HandCoins, Landmark, PencilLine, Pencil, Plus, RefreshCw,
+  Archive, ArrowDownLeft, ArrowUpRight, CalendarClock, ChartNoAxesCombined, CircleHelp, HandCoins, Handshake, Landmark, PencilLine, Pencil, Plus, RefreshCw,
   TrendingUp, Users, WalletCards,
 } from "lucide-react";
 import {
@@ -11,7 +11,7 @@ import { debtStatus, type DebtStatus } from "../lib/debts";
 import { investmentHistory, investmentSummary } from "../lib/investments";
 import { AccountGlyph, Empty, HistoryChart, PanelTitle, axisMoney } from "./ledger-views";
 
-export type PatrimonioTab = "accounts" | "investments" | "debts";
+export type PatrimonioTab = "accounts" | "investments" | "debts" | "credits";
 
 const CLASS_COLORS: Record<string, string> = {
   equity: "#1d9e75", bond: "#378add", pension: "#7f77dd", crypto: "#ef9f27", deposit: "#5e8f3c", other: "#888780",
@@ -24,6 +24,8 @@ type Handlers = {
   onDebt: (account?: Account) => void;
   onRepay: (debt: Account) => void;
   onContribute: (investment: Account) => void;
+  onCredit: (account?: Account) => void;
+  onCreditMove: (credit: Account, direction: "lend" | "back") => void;
 };
 
 export function Patrimonio({ ledger, year, month, monthChange, tab, onTab, ...handlers }: Handlers & {
@@ -34,13 +36,15 @@ export function Patrimonio({ ledger, year, month, monthChange, tab, onTab, ...ha
   const sum = netWorth(values);
   const part = (types: string[]) => values.filter(({ account }) => types.includes(account.value.type))
     .reduce((total, { amount }) => total + (amount ?? 0), 0);
-  const tabs: [PatrimonioTab, string, typeof WalletCards][] = [["accounts", "Conti", WalletCards], ["investments", "Investimenti", TrendingUp], ["debts", "Debiti", HandCoins]];
+  const tabs: [PatrimonioTab, string, typeof WalletCards][] = [["accounts", "Conti", WalletCards], ["investments", "Investimenti", TrendingUp], ["debts", "Debiti", HandCoins], ["credits", "Crediti", Handshake]];
+  const credits = part(["receivable"]);
   return <>
     <section className="net-hero">
       <div><span className="net-kicker"><Landmark size={17} /> PATRIMONIO NETTO</span><strong>{money(sum)}</strong>
         <p className="net-split">
           <span>Liquidità e beni {money(part(["cash", "asset"]))}</span>
           <span>Investimenti {money(part(["investment"]))}</span>
+          {(credits !== 0 || ledger.accounts.some((account) => account.value.type === "receivable")) && <span>Crediti {money(credits)}</span>}
           <span>Debiti −{money(part(["debt"]))}</span>
         </p>
         <p>{monthLabel(month)} · {values.filter(({ amount }) => amount !== null).length} di {values.length} valori disponibili</p></div>
@@ -53,6 +57,7 @@ export function Patrimonio({ ledger, year, month, monthChange, tab, onTab, ...ha
     {tab === "accounts" && <AccountsTab {...{ ledger, year, month, monthChange }} {...handlers} />}
     {tab === "investments" && <InvestmentsTab {...{ ledger, year, month }} {...handlers} />}
     {tab === "debts" && <DebtsTab {...{ ledger, year, month }} {...handlers} />}
+    {tab === "credits" && <CreditsTab {...{ ledger, month }} {...handlers} />}
   </>;
 }
 
@@ -301,5 +306,83 @@ function DebtsTab({ ledger, year, month, onDebt, onRepay, onBalance }: Handlers 
             <button type="button" className="text-button" onClick={() => onDebt(debt)}>Gestisci</button></span></li>;
       })}</ul>
     </details></section>}
+  </>;
+}
+
+// ------------------------------------------------------------------ Crediti
+
+/** Prestato e restituito per un credito, fino al mese indicato. */
+function creditFlows(ledger: Ledger, credit: Account, month: string) {
+  let lent = 0;
+  let back = 0;
+  let last: { date: string; amount: number; back: boolean } | null = null;
+  for (const { value } of ledger.movements) {
+    if (value.date.slice(0, 7) > month) continue;
+    let amount = 0;
+    let isBack = false;
+    if (value.type === "transfer" && value.toAccountId === credit.id) amount = value.amount;
+    else if (value.type === "transfer" && value.accountId === credit.id) { amount = value.amount; isBack = true; }
+    else if (value.type === "expense" && value.parts) amount = value.parts.filter((part) => part.creditId === credit.id).reduce((sum, part) => sum + part.amount, 0);
+    if (!amount) continue;
+    if (isBack) back += amount; else lent += amount;
+    if (!last || value.date > last.date) last = { date: value.date, amount, back: isBack };
+  }
+  return { lent, back, last };
+}
+
+function CreditsTab({ ledger, month, onCredit, onCreditMove, onBalance }: Handlers & { ledger: Ledger; month: string }) {
+  const values = accountBalances(ledger, month);
+  const credits = ledger.accounts.filter((account) => account.value.type === "receivable");
+  const active = credits.filter((account) => !account.value.archived);
+  const archived = credits.filter((account) => account.value.archived);
+  const residual = (credit: Account) => values.find((item) => item.account.id === credit.id)?.amount ?? null;
+  const total = credits.reduce((sum, credit) => sum + (residual(credit) ?? 0), 0);
+
+  if (!credits.length) {
+    return <section className="panel"><Empty icon={<Handshake size={22} />} title="Nessun credito"
+      action={<button type="button" className="button secondary" onClick={() => onCredit()}><Plus size={17} /> Nuovo credito</button>}>
+      Soldi che hai prestato o anticipato per qualcuno (una cena pagata per tutti, un prestito a un amico): restano nel tuo patrimonio finché non te li restituiscono.
+    </Empty></section>;
+  }
+  return <>
+    <section className="panel">
+      <PanelTitle title="Crediti" subtitle={`Quanto ti devono a ${monthLabel(month)}. Contano nel patrimonio, non come spese.`}
+        action={<button type="button" className="button secondary" onClick={() => onCredit()}><Plus size={17} /> Nuovo credito</button>} />
+      <div className="metric-grid">
+        <Metric label="Ti devono" value={money(total)} caption={(() => { const people = active.filter((credit) => (residual(credit) ?? 0) > 0).length; return people === 1 ? "1 persona" : `${people} persone`; })()} tone="good" />
+      </div>
+    </section>
+    <div className="debt-list">
+      {active.map((credit) => {
+        const left = residual(credit);
+        const flows = creditFlows(ledger, credit, month);
+        const start = credit.value.credit?.start;
+        const progress = flows.lent > 0 ? Math.min(1, flows.back / flows.lent) : null;
+        return <article className="debt-card credit-card" key={credit.id}>
+          <div className="debt-top">
+            <span className="debt-icon credit-icon"><Handshake size={18} /></span>
+            <div className="debt-title"><h3>{credit.value.name}</h3><small>{credit.value.credit?.note || "Credito"}{start ? ` · dal ${shortDate(start)}` : ""}</small></div>
+            <div className="debt-residual"><strong>{money(left)}</strong><small>ti deve</small></div>
+            <button type="button" className="icon-button quiet" aria-label={`Modifica ${credit.value.name}`} onClick={() => onCredit(credit)}><Pencil size={15} /></button>
+          </div>
+          {progress !== null && <>
+            <div className="progress" role="progressbar" aria-valuenow={Math.round(progress * 100)} aria-valuemin={0} aria-valuemax={100} aria-label="Quota restituita"><i style={{ width: `${progress * 100}%` }} /></div>
+            <div className="debt-progress-text"><span>Restituiti {money(flows.back)} su {money(flows.lent)} registrati</span>
+              {flows.last && <span>Ultimo: {shortDate(flows.last.date)} · {flows.last.back ? "restituiti" : "prestati"} {money(flows.last.amount)}</span>}</div>
+          </>}
+          <div className="debt-actions">
+            <button type="button" className="button secondary small" onClick={() => onCreditMove(credit, "back")}><ArrowDownLeft size={14} /> Registra restituzione</button>
+            <button type="button" className="button secondary small" onClick={() => onCreditMove(credit, "lend")}><ArrowUpRight size={14} /> Presta ancora</button>
+            <button type="button" className="text-button" onClick={() => onBalance(credit)}>Correggi</button>
+          </div>
+        </article>;
+      })}
+    </div>
+    {archived.length > 0 && <section className="panel"><details className="archived-block flush">
+      <summary><Archive size={15} /> Crediti chiusi o archiviati ({archived.length})</summary>
+      <ul className="archived-list">{archived.map((credit) => <li key={credit.id}><span>{credit.value.name}{residual(credit) ? <small className="archived-warning">Ancora {money(residual(credit))} nel patrimonio</small> : <small>Chiuso</small>}</span>
+        <button type="button" className="text-button" onClick={() => onCredit(credit)}>Gestisci</button></li>)}</ul>
+    </details></section>}
+    <p className="panel-note"><CircleHelp size={16} /> Per una spesa pagata anche per altri usa «Dividi la spesa»: la tua parte è una spesa, il resto va al credito di chi deve restituirtela.</p>
   </>;
 }

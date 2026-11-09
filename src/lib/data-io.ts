@@ -5,7 +5,7 @@ import {
 
 // ---------------------------------------------------------------- Esportazione
 
-export const MOVEMENT_HEADER = ["Data", "Tipo", "Descrizione", "Importo EUR", "Categoria o fonte", "Sottocategoria", "Conto", "Conto di destinazione", "Metodo di pagamento", "Note"];
+export const MOVEMENT_HEADER = ["Data", "Tipo", "Descrizione", "Importo EUR", "Categoria o fonte", "Sottocategoria", "Conto", "Conto di destinazione", "Metodo di pagamento", "Note", "Tag"];
 export const BALANCE_HEADER = ["Mese", "Conto", "Saldo netto EUR"];
 const BACKUP_FORMAT = "expense-tracking-backup";
 
@@ -43,9 +43,13 @@ export function movementRows(ledger: Ledger, items: Movement[]) {
       return [
         value.date, csvCell(ENTRY_TYPES.repayment), csvCell(value.title), csvNumber(-value.amount),
         csvCell(accounts.get(value.debtId) ?? ""), csvCell(`Capitale ${csvNumber(value.principal)} · Interessi ${csvNumber(value.interest)}`),
-        csvCell(value.accountId ? accounts.get(value.accountId) ?? "" : ""), csvCell(""), csvCell(""), csvCell(value.notes),
+        csvCell(value.accountId ? accounts.get(value.accountId) ?? "" : ""), csvCell(""), csvCell(""), csvCell(value.notes), csvCell((value.tags ?? []).join(", ")),
       ];
     }
+    // Spesa divisa: nel CSV resta una riga, le parti finiscono nelle note (il backup .json le conserva tutte).
+    const parts = value.type === "expense" && value.parts
+      ? ` [Divisa: ${value.parts.map((part) => `${part.creditId ? `credito ${accounts.get(part.creditId) ?? ""}` : labels.get(part.labelId ?? "") ?? ""} ${csvNumber(part.amount)}`).join(" · ")}]`
+      : "";
     return [
       value.date, csvCell(ENTRY_TYPES[value.type]), csvCell(value.title),
       csvNumber(value.type === "expense" ? -value.amount : value.amount),
@@ -53,7 +57,7 @@ export function movementRows(ledger: Ledger, items: Movement[]) {
       csvCell(value.type === "expense" ? value.subcategory : ""),
       csvCell(value.accountId ? accounts.get(value.accountId) ?? "" : ""),
       csvCell(value.type === "transfer" ? accounts.get(value.toAccountId) ?? "" : ""),
-      csvCell(value.type === "expense" ? value.method : ""), csvCell(value.notes),
+      csvCell(value.type === "expense" ? value.method : ""), csvCell((value.notes + parts).trim()), csvCell((value.tags ?? []).join(", ")),
     ];
   });
 }
@@ -243,7 +247,7 @@ function headerIndex(header: string[], names: string[]) {
 
 function planMovements(rows: string[][], ledger: Ledger): ImportPlan {
   const plan = emptyPlan("csv-movements");
-  const [date, type, title, amount, label, subcategory, account, toAccount, method, notes] = headerIndex(rows[0], MOVEMENT_HEADER);
+  const [date, type, title, amount, label, subcategory, account, toAccount, method, notes, tagColumn] = headerIndex(rows[0], MOVEMENT_HEADER);
   const lookup = new Lookup(ledger);
   const existing = new Map<string, number>();
   for (const { value } of ledger.movements) existing.set(fingerprint(value), (existing.get(fingerprint(value)) ?? 0) + 1);
@@ -261,7 +265,8 @@ function planMovements(rows: string[][], ledger: Ledger): ImportPlan {
     if (cents === null || cents === 0) return plan.issues.push({ line, reason: `importo «${cell(amount)}» non valido` });
     if (!entryTitle) return plan.issues.push({ line, reason: "descrizione mancante" });
     const fromName = cell(account);
-    const common = { date: entryDate, title: entryTitle, amount: Math.abs(cents), notes: cell(notes).slice(0, 1200) };
+    const tags = [...new Set(cell(tagColumn).split(",").map((tag) => tag.replace(/^#/, "").trim().slice(0, 40)).filter(Boolean))].slice(0, 10);
+    const common = { date: entryDate, title: entryTitle, amount: Math.abs(cents), notes: cell(notes).slice(0, 1200), ...(tags.length ? { tags } : {}) };
     let value: Movement["value"];
     if (entryType === "repayment") {
       const debtName = cell(label);
