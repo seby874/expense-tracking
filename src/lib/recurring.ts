@@ -1,4 +1,5 @@
 import type { Ledger, Movement, Recurring, Schedule } from "./ledger";
+import { splitRepayment } from "./debts";
 
 // Tutti i calcoli lavorano su date "YYYY-MM-DD" in UTC, senza fusi orari.
 
@@ -55,8 +56,15 @@ export function dueItems(ledger: Ledger, today: string): DueItem[] {
   }).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-export function occurrenceMovement(recurring: Recurring, date: string): Movement["value"] {
-  return { ...recurring.value.template, date };
+/** Movimento di una scadenza. Per le rate la divisione capitale/interessi si calcola alla data della scadenza. */
+export function occurrenceMovement(recurring: Recurring, date: string, ledger?: Ledger): Movement["value"] {
+  const template = recurring.value.template;
+  if (template.type === "repayment" && ledger) {
+    const debt = ledger.accounts.find((account) => account.id === template.debtId);
+    const split = splitRepayment(ledger, debt, date, template.amount);
+    return { ...template, date, principal: split.principal, interest: split.interest };
+  }
+  return { ...template, date };
 }
 
 export function scheduleLabel(schedule: Pick<Schedule, "frequency" | "every" | "start">) {

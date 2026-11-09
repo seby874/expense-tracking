@@ -34,9 +34,9 @@ export function AccountEditor({ ledger, id, initial, busy, error, onCommit, onAr
     <label>Nome<input name="name" defaultValue={initial?.value.name ?? ""} placeholder="Es. Contanti" maxLength={100} required /></label>
     <label>Tipo di conto
       <select name="type" defaultValue={initial?.value.type ?? "cash"}>
-        {Object.entries(ACCOUNT_TYPES).map(([value, title]) => <option value={value} key={value}>{title}</option>)}
+        {(["cash", "asset"] as const).map((value) => <option value={value} key={value}>{ACCOUNT_TYPES[value]}</option>)}
       </select>
-      {initial && <span className="field-note">Il tipo decide come il saldo entra nel patrimonio: i debiti vengono sottratti.</span>}
+      <span className="field-note">Investimenti e debiti hanno le loro schede in Patrimonio.</span>
     </label>
     {initial?.value.archived && <p className="form-help archived-note"><Archive size={15} /> Conto archiviato: non compare nei menu, ma lo storico resta.</p>}
     <FormError message={validation || error} />
@@ -225,6 +225,17 @@ function removalAction(target: Account | Label): Mutation {
   return { op: "delete", kind: target.kind, id: target.id, version: target.version ?? "00000000-0000-4000-8000-000000000000" };
 }
 
+/** Rate ricorrenti che appartengono a un debito: si mettono in pausa con l'archiviazione e si eliminano con il debito. */
+function ownRepayments(ledger: Ledger, target: Account | Label) {
+  if (target.kind !== "account" || target.value.type !== "debt") return [];
+  return ledger.recurring.filter(({ value }) => value.template.type === "repayment" && value.template.debtId === target.id);
+}
+
+function pauseActions(ledger: Ledger, target: Account | Label): Mutation[] {
+  return ownRepayments(ledger, target).filter(({ value }) => !value.paused)
+    .map((recurring) => ({ op: "save", record: { ...recurring, value: { ...recurring.value, paused: true } } }));
+}
+
 export function ArchiveDialog({ ledger, target, month, busy, error, onCommit, onCancel }: {
   ledger: Ledger; target: Account | Label; month: string; busy: boolean; error: string;
   onCommit: (actions: Mutation[], message: string) => void; onCancel: () => void;
@@ -239,6 +250,7 @@ export function ArchiveDialog({ ledger, target, month, busy, error, onCommit, on
     const { archived: _ignored, ...rest } = target.value;
     const value = restoring ? rest : { ...target.value, archived: true };
     const actions: Mutation[] = [{ op: "save", record: { ...target, value } as Account | Label }];
+    if (!restoring) actions.push(...pauseActions(ledger, target));
     if (!restoring && isAccount && zero) {
       const id = balanceId(target.id, month);
       const existing = ledger.balances.find((balance) => balance.id === id);
@@ -250,11 +262,14 @@ export function ArchiveDialog({ ledger, target, month, busy, error, onCommit, on
   return <div className="editor">
     <p className="form-help">{restoring
       ? `«${name}» tornerà disponibile nei menu.`
-      : `«${name}» sparirà dai menu di scelta. I movimenti già registrati restano e continuano a contare nelle analisi.`}</p>
+      : `«${name}» sparirà dai menu di scelta. I movimenti già registrati restano e continuano a contare nelle analisi.`}
+      {!restoring && ownRepayments(ledger, target).some(({ value }) => !value.paused) && " Le rate proposte ogni mese vengono messe in pausa."}</p>
     {!restoring && isAccount && current !== null && current !== 0 && <label className="check-row">
       <input type="checkbox" checked={zero} onChange={(event) => setZero(event.target.checked)} />
-      <span><strong>Registra un saldo di 0 € a {monthLabel(month)}</strong>
-        <small>Il saldo attuale è {money(current)}: se il conto è chiuso, azzeralo così non resta nel patrimonio netto.</small></span>
+      <span><strong>{(target as Account).value.type === "debt" ? `Segna il debito come estinto (residuo 0 € a ${monthLabel(month)})` : `Registra un saldo di 0 € a ${monthLabel(month)}`}</strong>
+        <small>{(target as Account).value.type === "debt"
+          ? `Il residuo attuale è ${money(current)}: se l’hai saldato, azzeralo così non viene più sottratto dal patrimonio.`
+          : `Il saldo attuale è ${money(current)}: se il conto è chiuso, azzeralo così non resta nel patrimonio netto.`}</small></span>
     </label>}
     <FormError message={error} />
     <div className="modal-actions">
@@ -272,14 +287,21 @@ export function RemoveDialog({ ledger, target, busy, error, onCommit, onCancel }
 }) {
   const isAccount = target.kind === "account";
   const used = usage(ledger, target.kind, target.id);
-  const linked = used.movements.length + used.recurring.length;
+  // Le rate ricorrenti di un debito non si spostano: spariscono con lui.
+  const own = ownRepayments(ledger, target);
+  const recurringLinked = used.recurring.filter((recurring) => !own.some((item) => item.id === recurring.id));
+  const linked = used.movements.length + recurringLinked.length;
   const alternatives = isAccount
-    ? activeAccounts(ledger).filter((account) => account.id !== target.id && account.value.type !== "debt")
+    ? activeAccounts(ledger).filter((account) => account.id !== target.id && account.value.type !== "debt" && ((target as Account).value.type === "investment") === (account.value.type === "investment"))
     : activeLabels(ledger, (target as Label).value.type).filter((label) => label.id !== target.id);
   const [choice, setChoice] = useState<"archive" | "move">(linked ? "archive" : "move");
+  // I rimborsi di un debito non si possono spostare su un altro: resta solo l'archiviazione.
+  const debtWithPayments = isAccount && (target as Account).value.type === "debt" && used.movements.some(({ value }) => value.type === "repayment" && value.debtId === target.id);
   const [destination, setDestination] = useState(alternatives[0]?.id ?? "");
   const name = target.value.name;
-  const noun = isAccount ? "il conto" : target.kind === "label" && (target as Label).value.type === "income" ? "la fonte" : "la categoria";
+  const accountType = isAccount ? (target as Account).value.type : null;
+  const noun = accountType === "debt" ? "il debito" : accountType === "investment" ? "l’investimento" : isAccount ? "il conto"
+    : (target as Label).value.type === "income" ? "la fonte" : "la categoria";
 
   // Un trasferimento tra il conto da eliminare e quello di destinazione diventerebbe da un conto a sé stesso.
   const conflicts = isAccount && destination
@@ -288,7 +310,7 @@ export function RemoveDialog({ ledger, target, busy, error, onCommit, onCancel }
 
   function confirm() {
     if (linked && choice === "archive") {
-      onCommit([{ op: "save", record: { ...target, value: { ...target.value, archived: true } } as Account | Label }], `«${name}» archiviato.`);
+      onCommit([{ op: "save", record: { ...target, value: { ...target.value, archived: true } } as Account | Label }, ...pauseActions(ledger, target)], `«${name}» archiviato.`);
       return;
     }
     const actions: Mutation[] = [];
@@ -306,7 +328,7 @@ export function RemoveDialog({ ledger, target, busy, error, onCommit, onCancel }
         }
         actions.push({ op: "save", record: { ...movement, value } });
       }
-      for (const recurring of used.recurring) {
+      for (const recurring of recurringLinked) {
         const t = recurring.value.template;
         let template = t;
         if (isAccount) {
@@ -324,6 +346,7 @@ export function RemoveDialog({ ledger, target, busy, error, onCommit, onCancel }
       }
     }
     for (const balance of used.balances) actions.push({ op: "delete", kind: "balance", id: balance.id, version: balance.version ?? "00000000-0000-4000-8000-000000000000" });
+    for (const recurring of own) actions.push({ op: "delete", kind: "recurring", id: recurring.id, version: recurring.version ?? "00000000-0000-4000-8000-000000000000" });
     actions.push(removalAction(target));
     onCommit(actions, linked ? `${plural(linked, "voce spostata", "voci spostate")} e «${name}» eliminato.` : `«${name}» eliminato.`);
   }
@@ -332,10 +355,10 @@ export function RemoveDialog({ ledger, target, busy, error, onCommit, onCancel }
 
   return <div className="editor">
     {linked === 0 ? <p className="form-help">
-      Eliminare {noun} «{name}»?{used.balances.length > 0 && ` Verranno eliminati anche ${plural(used.balances.length, "saldo registrato", "saldi registrati")}.`}
+      Eliminare {noun} «{name}»?{used.balances.length > 0 && ` ${used.balances.length === 1 ? "Verrà eliminato" : "Verranno eliminati"} anche ${plural(used.balances.length, "saldo registrato", "saldi registrati")}.`}{own.length > 0 && " Anche le rate proposte ogni mese verranno eliminate."}
     </p> : <>
       <p className="form-help">
-        «{name}» è usato da {plural(used.movements.length, "movimento", "movimenti")}{used.recurring.length > 0 && ` e ${plural(used.recurring.length, "ricorrente", "ricorrenti")}`}. Scegli cosa fare:
+        «{name}» è usato da {plural(used.movements.length, "movimento", "movimenti")}{recurringLinked.length > 0 && ` e ${plural(recurringLinked.length, "ricorrente", "ricorrenti")}`}. Scegli cosa fare:
       </p>
       <div className="choice-list" role="radiogroup">
         <label className="check-row">
@@ -344,9 +367,9 @@ export function RemoveDialog({ ledger, target, busy, error, onCommit, onCancel }
             <small>Sparisce dai menu, i movimenti restano com’erano.</small></span>
         </label>
         <label className="check-row">
-          <input type="radio" name="remove-choice" checked={choice === "move"} onChange={() => setChoice("move")} disabled={!alternatives.length} />
+          <input type="radio" name="remove-choice" checked={choice === "move"} onChange={() => setChoice("move")} disabled={!alternatives.length || debtWithPayments} />
           <span><strong>Sposta i movimenti ed elimina</strong>
-            <small>{alternatives.length ? "Tutti i movimenti collegati passano alla voce scelta." : `Non c’è ${isAccount ? "un altro conto" : "un’altra voce"} su cui spostarli.`}</small></span>
+            <small>{debtWithPayments ? "Non disponibile: le rate già registrate appartengono a questo debito. Archivialo." : alternatives.length ? "Tutti i movimenti collegati passano alla voce scelta." : `Non c’è ${isAccount ? "un altro conto" : "un’altra voce"} su cui spostarli.`}</small></span>
         </label>
         {choice === "move" && alternatives.length > 0 && <label className="indent">Sposta su
           <select value={destination} onChange={(event) => setDestination(event.target.value)}>

@@ -2,7 +2,7 @@ import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "re
 import {
   Archive, ArrowDownLeft, ArrowDownToLine, ArrowRight, ArrowUpRight, BarChart3, ChartNoAxesCombined, ChevronRight,
   CircleDollarSign, CircleHelp, ClipboardList, CloudOff, DatabaseBackup, FileUp, KeyRound, Landmark, Layers3, Monitor, Moon,
-  Pencil, Plus, RotateCw, Search, Sun, Timer, Wallet, WalletCards,
+  Pencil, Plus, RotateCw, Search, Sun, Timer, TrendingUp, Wallet, WalletCards,
 } from "lucide-react";
 import {
   ACCOUNT_TYPES, ENTRY_TYPES, MONTHS, accountBalances, activeAccounts, lastRecordedMonth, mix, money, monthLabel,
@@ -61,7 +61,7 @@ function AxisGrid({ ticks, format }: { ticks: number[]; format: (value: number) 
   </div>;
 }
 
-function axisMoney(cents: number) {
+export function axisMoney(cents: number) {
   const value = cents / 100;
   if (Math.abs(value) >= 1000) {
     return new Intl.NumberFormat("it-IT", { maximumFractionDigits: 1 }).format(value / 1000) + "k €";
@@ -83,8 +83,9 @@ function Legend({ items }: { items: { name: string; color: string }[] }) {
 
 function FlowChart({ ledger, year, period, monthChange, demoAction }: PeriodProps & { demoAction?: ReactNode }) {
   const flows = yearlyFlow(ledger, year);
-  const peak = Math.max(...flows.flatMap(({ income, expense }) => [income, expense]));
+  const peak = Math.max(...flows.flatMap(({ income, expense, repaid }) => [income, expense, repaid]));
   const top = chartTop(peak);
+  const hasRepaid = flows.some(({ repaid }) => repaid > 0);
   return <section className="panel flow-panel">
     <PanelTitle title="Flusso di cassa" subtitle={`Entrate e spese per mese · ${year}`}
       action={<span className="tag year-tag">{year}</span>} />
@@ -93,13 +94,14 @@ function FlowChart({ ledger, year, period, monthChange, demoAction }: PeriodProp
         <AxisGrid ticks={peak ? [top, top * .75, top * .5, top * .25, 0] : [1000, 750, 500, 250, 0]}
           format={(value) => peak || value === 0 ? axisMoney(value) : ""} />
         <div className="plot-columns">
-          {flows.map(({ month, income, expense }) => <button type="button" key={month} className="plot-month"
+          {flows.map(({ month, income, expense, repaid }) => <button type="button" key={month} className="plot-month"
             aria-pressed={period === month} onClick={() => monthChange(month)}
-            aria-label={`${monthLabel(month)}, entrate ${money(income)}, spese ${money(expense)}`}
-            title={`${monthLabel(month)} · Entrate ${money(income)} · Spese ${money(expense)}`}>
+            aria-label={`${monthLabel(month)}, entrate ${money(income)}, spese ${money(expense)}${repaid ? `, capitale rimborsato ${money(repaid)}` : ""}`}
+            title={`${monthLabel(month)} · Entrate ${money(income)} · Spese ${money(expense)}${repaid ? ` · Rimborsi ${money(repaid)}` : ""}`}>
             <span className="bar-pair">
               <i className="bar bar-income" style={{ height: `${income / top * 100}%` }} />
               <i className="bar bar-expense" style={{ height: `${expense / top * 100}%` }} />
+              {hasRepaid && <i className="bar bar-repaid" style={{ height: `${repaid / top * 100}%` }} />}
             </span>
             <span className="plot-label">{monthName(month).slice(0, 3)}</span>
           </button>)}
@@ -110,7 +112,7 @@ function FlowChart({ ledger, year, period, monthChange, demoAction }: PeriodProp
       </div>
     </div>
     <div className="flow-footer">
-      <Legend items={[{ name: "Entrate", color: "#228b75" }, { name: "Spese", color: "#df9677" }]} />
+      <Legend items={[{ name: "Entrate", color: "#228b75" }, { name: "Spese", color: "#df9677" }, ...(hasRepaid ? [{ name: "Rimborsi debiti", color: "#8d7fc2" }] : [])]} />
       {demoAction}
     </div>
   </section>;
@@ -132,7 +134,7 @@ function Ring({ groups, total }: { groups: ReturnType<typeof mix>; total: number
 function SpendingCard({ ledger, items, periodName, onOpen }: {
   ledger: Ledger; items: Movement[]; periodName: string; onOpen: () => void;
 }) {
-  const groups = mix(items, ledger.labels, "expense").filter(({ amount }) => amount > 0).sort((a, b) => b.amount - a.amount);
+  const groups = mix(items, ledger.labels, "expense", ledger.accounts).filter(({ amount }) => amount > 0).sort((a, b) => b.amount - a.amount);
   const total = groups.reduce((sum, group) => sum + group.amount, 0);
   const topGroups = groups.length > 4
     ? [...groups.slice(0, 3), { name: "Altre categorie", id: "remaining", color: "#a9bbb6", amount: groups.slice(3).reduce((sum, group) => sum + group.amount, 0), detail: [] }]
@@ -159,7 +161,13 @@ export function Overview({ ledger, year, period, month, monthChange, onEdit, onN
   const items = periodMovements(ledger, period);
   const summary = totals(items);
   const accounts = accountBalances(ledger, month);
-  const visibleAccounts = accounts.filter(({ account, amount }) => !account.value.archived || (amount !== null && amount !== 0));
+  const visibleAccounts = accounts.filter(({ account, amount }) => (account.value.type === "cash" || account.value.type === "asset") && (!account.value.archived || (amount !== null && amount !== 0)));
+  const groupTotal = (type: "investment" | "debt") => {
+    const list = accounts.filter(({ account, amount }) => account.value.type === type && amount !== null);
+    return list.length ? list.reduce((sum, { amount }) => sum + (amount ?? 0), 0) : null;
+  };
+  const invested = groupTotal("investment");
+  const owed = groupTotal("debt");
   const known = accounts.filter(({ amount }) => amount !== null).length;
   const periodName = period.length === 4 ? `Anno ${year}` : monthLabel(period);
   return <>
@@ -168,7 +176,11 @@ export function Overview({ ledger, year, period, month, monthChange, onEdit, onN
       <Stat title="Entrate" value={money(summary.income)} color="green" icon={<ArrowDownLeft size={20} />}
         caption={flowWord(items.filter(({ value }) => value.type === "income").length, "entrata registrata", "entrate registrate")} />
       <Stat title="Spese" value={money(summary.expense)} color="orange" icon={<ArrowUpRight size={20} />}
-        caption={flowWord(items.filter(({ value }) => value.type === "expense").length, "spesa registrata", "spese registrate")} />
+        caption={(() => {
+          const count = items.filter(({ value }) => value.type === "expense").length;
+          if (!count && summary.interest) return `Solo interessi e spese delle rate (${money(summary.interest)})`;
+          return flowWord(count, "spesa registrata", "spese registrate") + (summary.interest ? ` · ${money(summary.interest)} di interessi` : "");
+        })()} />
       <Stat title="Risparmio netto" value={money(summary.saving)} color="blue" icon={<Wallet size={19} />}
         caption={summary.rate === null ? "Entrate meno spese" : `${rate(summary.rate)} delle entrate`} />
       <Stat title="Patrimonio netto" value={money(netWorth(accounts))} color="purple" icon={<Landmark size={19} />}
@@ -189,10 +201,14 @@ export function Overview({ ledger, year, period, month, monthChange, onEdit, onN
           </Empty>}
       </section>
       <section className="panel accounts-panel">
-        <PanelTitle title="Conti e saldi" subtitle={monthLabel(month)}
-          action={<button type="button" className="icon-button quiet" aria-label="Vai a conti e patrimonio" onClick={() => onView("accounts")}><ArrowUpRight size={18} /></button>} />
+        <PanelTitle title="Patrimonio" subtitle={monthLabel(month)}
+          action={<button type="button" className="icon-button quiet" aria-label="Vai al patrimonio" onClick={() => onView("accounts")}><ArrowUpRight size={18} /></button>} />
         <ul className="account-mini">
-          {visibleAccounts.slice(0, 4).map(({ account, amount }) => <li key={account.id}>
+          {invested !== null && <li><span className="account-symbol account-invest"><TrendingUp size={17} /></span>
+            <span className="account-mini-name"><strong>Investimenti</strong><small>Valore stimato</small></span><b>{money(invested)}</b></li>}
+          {owed !== null && <li><span className="account-symbol account-debt"><CircleDollarSign size={17} /></span>
+            <span className="account-mini-name"><strong>Debiti</strong><small>Residuo da rimborsare</small></span><b className="amount-expense">−{money(owed)}</b></li>}
+          {visibleAccounts.slice(0, invested !== null || owed !== null ? 3 : 4).map(({ account, amount }) => <li key={account.id}>
             <span className={`account-symbol account-${account.id}`}><AccountGlyph account={account} /></span>
             <span className="account-mini-name"><strong>{account.value.name}</strong><small>{ACCOUNT_TYPES[account.value.type]}</small></span>
             {amount === null ? <button className="text-button" type="button" onClick={() => onBalance(account)} aria-label={`Registra saldo ${account.value.name}`}>Registra</button> : <b>{money(amount)}</b>}
@@ -203,9 +219,10 @@ export function Overview({ ledger, year, period, month, monthChange, onEdit, onN
   </>;
 }
 
-function AccountGlyph({ account }: { account: Account }) {
+export function AccountGlyph({ account }: { account: Account }) {
   if (account.id === "fineco") return "F";
   if (account.id === "revolut") return "R";
+  if (account.value.type === "investment") return <TrendingUp size={18} />;
   if (account.value.type === "asset") return <Layers3 size={18} />;
   if (account.value.type === "debt") return <CircleDollarSign size={18} />;
   return <WalletCards size={18} />;
@@ -222,9 +239,12 @@ function MovementTable({ items, ledger, onEdit, compact = false }: {
       <tbody>{items.map((entry) => {
         const value = entry.value;
         const Icon = TYPE_ICONS[value.type];
-        const category = value.type === "transfer" ? ENTRY_TYPES.transfer : (labels.get(value.labelId) ?? ENTRY_TYPES[value.type]);
+        const category = value.type === "transfer" ? ENTRY_TYPES.transfer
+          : value.type === "repayment" ? `${ENTRY_TYPES.repayment} · ${accounts.get(value.debtId) ?? "debito"}`
+          : (labels.get(value.labelId) ?? ENTRY_TYPES[value.type]);
         const account = value.accountId ? accounts.get(value.accountId) : null;
-        const subtitle = value.type === "expense" ? value.subcategory : "";
+        const subtitle = value.type === "expense" ? value.subcategory
+          : value.type === "repayment" ? `Capitale ${money(value.principal)} · Interessi ${money(value.interest)}` : "";
         return <tr key={entry.id}>
           <td><div className="movement-name"><span className={`entry-icon entry-${value.type}`}><Icon size={16} /></span>
             <span><strong>{value.title}</strong>{compact && <small>{category}</small>}{!compact && value.notes && <small className="truncate" title={value.notes}>{value.notes}</small>}</span>
@@ -235,7 +255,7 @@ function MovementTable({ items, ledger, onEdit, compact = false }: {
             <td><span>{value.type === "transfer" ? `${account ?? "—"} → ${accounts.get(value.toAccountId) ?? "—"}` : account ?? "—"}</span>
               {value.type === "expense" && value.method && <small className="table-subtitle">{value.method}</small>}</td>
           </>}
-          <td className={`number entry-amount amount-${value.type}`}>{value.type === "expense" ? "−" : value.type === "income" ? "+" : ""}{money(value.amount)}</td>
+          <td className={`number entry-amount amount-${value.type}`}>{value.type === "expense" || value.type === "repayment" ? "−" : value.type === "income" ? "+" : ""}{money(value.amount)}</td>
           <td className="row-action"><button type="button" className="icon-button quiet" aria-label={`Modifica ${value.title}`} onClick={() => onEdit(entry)}><Pencil size={16} /></button></td>
         </tr>;
       })}</tbody>
@@ -290,7 +310,7 @@ export function Movements({ ledger, period, onEdit, onNew, onExport }: {
   </section>;
 }
 
-function HistoryChart({ points, month, onMonth }: {
+export function HistoryChart({ points, month, onMonth }: {
   points: { month: string; amount: number | null }[]; month: string; onMonth: (month: string) => void;
 }) {
   const gradient = useId();
@@ -322,70 +342,15 @@ function HistoryChart({ points, month, onMonth }: {
   </div>;
 }
 
-export function Accounts({ ledger, year, month, monthChange, onBalance, onAccount }: PeriodProps & {
-  onBalance: (account: Account) => void; onAccount: (account?: Account) => void;
-}) {
-  const values = accountBalances(ledger, month);
-  const latest = lastRecordedMonth(ledger);
-  const first = `${year - 1}-12`;
-  const history = [first, ...yearMonths(year)].map((key) => ({
-    month: key,
-    amount: latest && key <= latest ? netWorth(accountBalances(ledger, key)) : null,
-  }));
-  const sum = netWorth(values);
-  return <>
-    <section className="net-hero">
-      <div><span className="net-kicker"><Landmark size={17} /> PATRIMONIO NETTO</span><strong>{money(sum)}</strong>
-        <p>{monthLabel(month)} · {values.filter(({ amount }) => amount !== null).length} di {values.length} saldi disponibili</p></div>
-      <span className="net-decoration" aria-hidden="true"><ChartNoAxesCombined size={126} strokeWidth={1} /></span>
-    </section>
-    <section className="panel account-list">
-      <PanelTitle title="I tuoi conti" subtitle="Liquidità, altre attività e debiti."
-        action={<button type="button" className="button secondary" onClick={() => onAccount()}><Plus size={17} /> Nuovo conto</button>} />
-      <div className="account-grid">
-        {values.filter(({ account }) => !account.value.archived).map(({ account, amount, exact, snapshot }) => <article className="account-card" key={account.id}>
-          <div className="account-card-top"><span className={`account-symbol account-${account.id}`}><AccountGlyph account={account} /></span>
-            <div><h3>{account.value.name}</h3><span>{ACCOUNT_TYPES[account.value.type]}</span></div>
-            <button className="icon-button quiet" type="button" aria-label={`Modifica ${account.value.name}`} title="Modifica, archivia o elimina" onClick={() => onAccount(account)}><Pencil size={16} /></button>
-          </div>
-          <strong>{money(amount)}</strong>
-          <span className="account-detail">{exact ? "Saldo registrato" : snapshot ? `Da ${monthLabel(snapshot.value.month)}${account.value.type === "debt" ? "" : " + movimenti collegati"}` : "Saldo iniziale da registrare"}</span>
-          <button type="button" className="button secondary" onClick={() => onBalance(account)}>{exact ? "Modifica saldo" : "Registra saldo"}</button>
-        </article>)}
-      </div>
-      {values.some(({ account }) => account.value.archived) && <details className="archived-block">
-        <summary><Archive size={15} /> Conti archiviati ({values.filter(({ account }) => account.value.archived).length})</summary>
-        <ul className="archived-list">{values.filter(({ account }) => account.value.archived).map(({ account, amount }) => <li key={account.id}>
-          <span>{account.value.name}<small>{ACCOUNT_TYPES[account.value.type]}{amount !== null && amount !== 0 ? ` · ancora nel patrimonio: ${money(amount)}` : ""}</small></span>
-          <button type="button" className="text-button" onClick={() => onAccount(account)}>Gestisci</button>
-        </li>)}</ul>
-      </details>}
-      <p className="panel-note"><CircleHelp size={16} /> Il saldo registrato a fine mese comprende già i movimenti di quel mese. L’app applica quelli collegati dei mesi successivi.</p>
-    </section>
-    <section className="panel history-panel">
-      <PanelTitle title="Storico del patrimonio" subtitle={`Da dicembre ${year - 1} a dicembre ${year}`} />
-      {history.some(({ amount }) => amount !== null) ? <>
-        <HistoryChart points={history} month={month} onMonth={monthChange} />
-        <details className="history-detail"><summary>Mostra valori mensili</summary>
-          <div className="table-scroll"><table className="data-table compact-table">
-            <thead><tr><th scope="col">Mese</th><th className="number" scope="col">Patrimonio netto</th></tr></thead>
-            <tbody>{history.map((point) => <tr key={point.month}><td>{monthLabel(point.month)}</td><td className="number">{money(point.amount)}</td></tr>)}</tbody>
-          </table></div>
-        </details>
-      </> : <Empty icon={<ChartNoAxesCombined size={23} />} title="Lo storico è ancora vuoto">Registra il saldo di un conto per iniziare a tracciare il patrimonio.</Empty>}
-    </section>
-  </>;
-}
-
 function StackedChart({ ledger, year, type }: { ledger: Ledger; year: number; type: "expense" | "income" }) {
   const [mode, setMode] = useState<"euros" | "share">("euros");
   const grouped = useMemo(() => yearMonths(year).map((month) => {
-    const parts = mix(periodMovements(ledger, month), ledger.labels, type);
+    const parts = mix(periodMovements(ledger, month), ledger.labels, type, ledger.accounts);
     return { month, parts, amount: parts.reduce((sum, group) => sum + group.amount, 0) };
   }), [ledger, year, type]);
   const peak = Math.max(...grouped.map(({ amount }) => amount));
   const top = chartTop(peak);
-  const all = mix(periodMovements(ledger, String(year)), ledger.labels, type).filter(({ amount }) => amount > 0);
+  const all = mix(periodMovements(ledger, String(year)), ledger.labels, type, ledger.accounts).filter(({ amount }) => amount > 0);
   return <section className="panel stacked-panel">
     <PanelTitle title={type === "expense" ? "Storico delle spese" : "Storico delle entrate"}
       subtitle={`Composizione per mese · ${year}`}
@@ -418,14 +383,15 @@ function StackedChart({ ledger, year, type }: { ledger: Ledger; year: number; ty
 function Compare({ ledger, year, period, type }: Omit<PeriodProps, "month" | "monthChange"> & { type: "expense" | "income" }) {
   const [first, setFirst] = useState(period.length === 7 ? period.slice(5) : "01");
   const [second, setSecond] = useState("average");
-  const yearly = periodMovements(ledger, String(year)).filter(({ value }) => value.type === type);
+  // Gli interessi delle rate contano tra le spese.
+  const yearly = periodMovements(ledger, String(year)).filter(({ value }) => value.type === type || (type === "expense" && value.type === "repayment" && value.interest > 0));
   const activeMonths = new Set(yearly.map(({ value }) => value.date.slice(0, 7))).size;
   const months = yearMonths(year);
 
   function values(selection: string) {
     const entries = /^\d{2}$/.test(selection) ? periodMovements(ledger, `${year}-${selection}`) : yearly;
     const divisor = selection === "average" ? Math.max(1, activeMonths) : 1;
-    return mix(entries, ledger.labels, type).map((group) => ({ ...group, amount: group.amount / divisor }));
+    return mix(entries, ledger.labels, type, ledger.accounts).map((group) => ({ ...group, amount: group.amount / divisor }));
   }
 
   const a = values(first);
@@ -461,7 +427,7 @@ function Compare({ ledger, year, period, type }: Omit<PeriodProps, "month" | "mo
 
 export function Reports({ ledger, year, period }: Pick<PeriodProps, "ledger" | "year" | "period">) {
   const [type, setType] = useState<"expense" | "income">("expense");
-  const groups = mix(periodMovements(ledger, period), ledger.labels, type).sort((a, b) => b.amount - a.amount);
+  const groups = mix(periodMovements(ledger, period), ledger.labels, type, ledger.accounts).sort((a, b) => b.amount - a.amount);
   const total = groups.reduce((sum, item) => sum + item.amount, 0);
   const flows = yearlyFlow(ledger, year);
   const yearTotal = totals(periodMovements(ledger, String(year)));

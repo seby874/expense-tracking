@@ -6,7 +6,7 @@ import { Empty, PanelTitle } from "./ledger-views";
 
 function amountText(recurring: Recurring) {
   const { type, amount } = recurring.value.template;
-  return `${type === "expense" ? "−" : type === "income" ? "+" : ""}${money(amount)}`;
+  return `${type === "expense" || type === "repayment" ? "−" : type === "income" ? "+" : ""}${money(amount)}`;
 }
 
 /** Scadenze arrivate: si confermano, si modificano prima di registrarle o si saltano. */
@@ -47,6 +47,7 @@ export function RecurringPanel({ ledger, onNew, onEdit }: {
   ledger: Ledger; onNew: () => void; onEdit: (recurring: Recurring) => void;
 }) {
   const labels = new Map(ledger.labels.map((label) => [label.id, label.value.name]));
+  const accounts = new Map(ledger.accounts.map((account) => [account.id, account.value.name]));
   return <section className="panel recurring-panel">
     <PanelTitle title="Movimenti ricorrenti" subtitle="Affitto, abbonamenti, stipendio: ti vengono proposti a ogni scadenza."
       action={<button type="button" className="button secondary" onClick={onNew}><Plus size={16} /> Nuovo ricorrente</button>} />
@@ -55,7 +56,8 @@ export function RecurringPanel({ ledger, onNew, onEdit }: {
         const { template, schedule, paused } = recurring.value;
         const Icon = TYPE_ICONS[template.type];
         const next = nextDate(schedule);
-        const category = template.type === "transfer" ? "Trasferimento" : labels.get(template.labelId) ?? "";
+        const category = template.type === "transfer" ? `Trasferimento → ${accounts.get(template.toAccountId) ?? ""}`
+          : template.type === "repayment" ? `Rata · ${accounts.get(template.debtId) ?? "debito"}` : labels.get(template.labelId) ?? "";
         return <li key={recurring.id} className={paused || !next ? "is-muted" : undefined}>
           <span className={`entry-icon entry-${template.type}`}><Icon size={16} /></span>
           <div className="recurring-main">

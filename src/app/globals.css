@@ -23,6 +23,12 @@
   --danger-pale: #fdf1f1;
   --due-bg: #fffcf6;
   --due-border: #f0e2c8;
+  --good: #146850;
+  --good-pale: #e6f4ec;
+  --good-border: #cfe7d9;
+  --repay: #6c5293;
+  --repay-pale: #f3effa;
+  --repay-border: #e2d9f2;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -465,6 +471,8 @@ input:focus, select:focus, textarea:focus { border-color: #6daa95; }
 .archived-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); color: var(--ink); font-size: 12.5px; }
 .archived-list li:last-child { border: 0; }
 .archived-list small { display: block; color: var(--muted); font-size: 10.5px; }
+.archived-list .archived-warning { color: var(--warn); }
+.archived-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 12px; }
 
 /* Aspetto e dispositivo */
 .device-panel { margin-top: 17px; }
@@ -483,6 +491,94 @@ input:focus, select:focus, textarea:focus { border-color: #6daa95; }
 .spin { animation: spin 1.1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .spin { animation: none; } .tree-chevron, .switch span { transition: none; } }
+
+/* Patrimonio: schede, investimenti, debiti */
+.net-split { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px !important; color: #e3f4ea !important; font-size: 12.5px !important; font-weight: 600; }
+.net-split span { padding: 3px 9px; border-radius: 20px; background: #ffffff14; border: 1px solid #ffffff1f; }
+.patrimonio-tabs { margin-bottom: 15px; }
+.metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); gap: 10px; }
+.metric { display: grid; gap: 2px; padding: 12px 14px; border-radius: 11px; background: var(--subtle); border: 1px solid var(--line); min-width: 0; }
+.metric span { color: var(--muted); font-size: 12px; font-weight: 640; }
+.metric strong { font-size: 23px; font-weight: 760; letter-spacing: -.045em; font-variant-numeric: tabular-nums; line-height: 1.2; overflow-wrap: anywhere; }
+.metric small { color: var(--muted); font-size: 11px; }
+.metric-good { background: var(--good-pale); border-color: var(--good-border); }
+.metric-good strong, .metric-good span, .metric-good small { color: var(--good); }
+.metric-bad { background: var(--danger-pale); border-color: #efd3d6; }
+.metric-bad strong { color: #a0353d; }
+.metric-warn { background: var(--warn-pale); border-color: var(--warn-border); }
+.metric-warn strong, .metric-warn span, .metric-warn small { color: var(--warn); }
+.chart-legend { display: flex; gap: 14px; margin: 16px 0 4px; color: var(--muted); font-size: 11px; }
+.chart-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend-line { display: inline-block; width: 18px; border-top: 2.5px solid #13836e; }
+.legend-line.dashed { border-top: 2px dashed #8a9b94; }
+.two-line .history-svg { height: 170px; }
+.allocation { display: grid; gap: 7px; margin-top: 16px; }
+.allocation-title { color: var(--muted); font-size: 12px; font-weight: 640; }
+.allocation-bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: var(--line); }
+.allocation-bar i { display: block; height: 100%; }
+.holdings-panel { margin-top: 17px; }
+.holding-list { display: grid; }
+.holding-list > li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 10px 18px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.holding-list > li:first-child { padding-top: 0; }
+.holding-list > li:last-child { border: 0; }
+.holding-main strong { display: block; font-size: 13.5px; font-weight: 700; }
+.holding-main small { color: var(--muted); font-size: 11px; }
+.holding-figures { display: grid; grid-template-columns: repeat(3, minmax(86px, auto)); gap: 14px; margin: 0; }
+.holding-figures div { text-align: right; }
+.holding-figures dt { color: var(--muted); font-size: 10.5px; }
+.holding-figures dd { margin: 0; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.holding-figures dd small { display: block; font-size: 10.5px; font-weight: 600; }
+.gain { color: var(--good); }
+.loss { color: #a0353d; }
+.holding-actions { display: flex; gap: 6px; align-items: center; }
+.holding-actions .icon-button { width: 31px; height: 31px; }
+.debt-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 13px; margin-top: 15px; }
+.debt-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 17px; display: grid; gap: 9px; min-width: 0; }
+.debt-top { display: flex; align-items: flex-start; gap: 10px; }
+.debt-icon { display: grid; place-items: center; width: 34px; height: 34px; flex: 0 0 34px; border-radius: 10px; background: var(--repay-pale); color: var(--repay); }
+.debt-title { flex: 1; min-width: 0; }
+.debt-title h3 { font-size: 14px; font-weight: 730; overflow-wrap: anywhere; }
+.debt-title small { display: block; color: var(--muted); font-size: 11px; margin-top: 1px; }
+.debt-residual { text-align: right; }
+.debt-residual strong { display: block; font-size: 19px; font-weight: 760; letter-spacing: -.04em; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.debt-residual small { color: var(--muted); font-size: 10.5px; }
+.debt-top .icon-button { width: 31px; height: 31px; }
+.progress { height: 8px; border-radius: 6px; background: var(--line); overflow: hidden; }
+.progress i { display: block; height: 100%; border-radius: 6px; background: var(--accent-solid); }
+.debt-progress-text { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; color: var(--muted); font-size: 11.5px; }
+.debt-next { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 9px 11px; border-radius: 9px; background: var(--subtle); border: 1px solid var(--line); font-size: 12.5px; font-weight: 600; }
+.debt-next > div { min-width: 0; }
+.debt-next > div > svg { display: inline-block; vertical-align: -3px; margin-right: 5px; color: var(--repay); }
+.debt-next small { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; font-weight: 500; }
+.debt-next.manual { font-weight: 500; color: var(--muted); }
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 20px; font-size: 10.5px; font-weight: 720; white-space: nowrap; background: var(--line); color: var(--muted); }
+.pill-good { background: var(--good-pale); color: var(--good); }
+.debt-interest { color: var(--muted); font-size: 11.5px; }
+.debt-actions { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
+.archived-block.flush { margin-top: 0; padding-top: 0; border-top: 0; }
+.bar-repaid { background: #8d7fc2; }
+.entry-repayment { color: var(--repay); background: var(--repay-pale); }
+.amount-repayment { color: var(--repay); }
+.account-invest { background: var(--good-pale); color: var(--good); }
+.account-debt { background: var(--repay-pale); color: var(--repay); }
+
+/* Rata: divisione capitale/interessi e spiegazione del finanziamento */
+.editor .type-switch { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); width: 100%; }
+.split-box { display: grid; gap: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--repay-border); background: var(--repay-pale); }
+.split-head { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--repay); }
+.split-head strong { flex: 1; }
+.editor label.split-toggle { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; color: var(--repay); cursor: pointer; }
+.editor .split-toggle input { width: 14px; height: 14px; min-height: 0; padding: 0; margin: 0; accent-color: var(--repay); }
+.split-box p { display: grid; gap: 2px; font-size: 12.5px; color: var(--ink); }
+.split-box p small { color: var(--muted); font-size: 11px; }
+.loan-explainer { display: grid; gap: 8px; padding: 12px 13px; border-radius: 11px; background: var(--subtle); border: 1px solid var(--line); font-size: 12.5px; line-height: 1.5; }
+.explainer-title { display: flex; align-items: center; gap: 6px; font-weight: 720; color: var(--accent); }
+.loan-explainer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; padding: 1px 4px; border-radius: 4px; background: var(--line); }
+.calc-lines { display: grid; gap: 3px; }
+.calc-lines li { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dashed var(--line-strong); padding: 2px 0; }
+.calc-lines li span { color: var(--muted); }
+.calc-lines li b { text-align: right; font-variant-numeric: tabular-nums; }
+.plan-table { font-size: 11.5px; }
 
 @media (max-width: 1220px) {
   :root { --pad: 17px; }
@@ -561,6 +657,13 @@ input:focus, select:focus, textarea:focus { border-color: #6daa95; }
   .notice { flex-wrap: wrap; }
   .notice > div { min-width: 170px; }
   .modal { padding: 15px; }
+  .holding-list > li { grid-template-columns: minmax(0, 1fr); }
+  .holding-figures { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .holding-figures div { text-align: left; }
+  .debt-top { flex-wrap: wrap; }
+  .debt-residual { margin-left: auto; }
+  .editor .type-switch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .editor .type-switch button { min-height: 34px; }
   .due-list li { flex-wrap: wrap; }
   .due-main { flex-basis: calc(100% - 140px); }
   .due-actions { width: 100%; justify-content: flex-end; }
@@ -604,7 +707,17 @@ html.dark {
   --danger-pale: #2e1919;
   --due-bg: #1a1c15;
   --due-border: #3d3622;
+  --good: #6fd3ad;
+  --good-pale: #133429;
+  --good-border: #24503f;
+  --repay: #c9b0f0;
+  --repay-pale: #221c33;
+  --repay-border: #382d52;
 }
+html.dark .net-split { color: #e3f4ea !important; }
+html.dark .metric-bad strong, html.dark .loss { color: #f2a9a3; }
+html.dark .metric-bad { border-color: #4b2626; }
+html.dark .legend-line { border-color: #5cd0a8; }
 html.dark .skip-link { background: var(--surface); }
 html.dark .topbar { background: #111c18; }
 html.dark .privacy-badge { background: #16251f; border-color: #27392f; color: #9fd3bd; }
@@ -672,6 +785,7 @@ html.dark .history-detail { color: #a9c4b8; }
 html.dark .history-svg line { stroke: #26362f; }
 html.dark .history-svg stop { stop-color: #5cd0a8; }
 html.dark .history-svg path[fill="none"] { stroke: #5cd0a8; }
+html.dark .history-svg path.line-paid[fill="none"] { stroke: #8ea39a; }
 html.dark .history-svg circle { fill: #5cd0a8; stroke: #14201c; }
 html.dark .segmented { background: #111c18; border-color: #22322c; }
 html.dark .segmented button { color: var(--muted); }

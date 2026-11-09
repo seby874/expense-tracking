@@ -4,7 +4,11 @@ App personale in italiano per registrare entrate, spese, trasferimenti, saldi de
 
 ## Funzioni
 
-- Panoramica, movimenti, conti e patrimonio, analisi, esportazione CSV, dati di esempio.
+- Panoramica, movimenti, patrimonio, analisi, esportazione CSV, dati di esempio.
+- **Patrimonio** in tre schede: **Conti** (liquidità e altri beni), **Investimenti** e **Debiti**.
+- **Investimenti**: valore aggiornato a mano («Aggiorna valore»), versamenti come trasferimenti da un conto («Versa»), versato, rendimento, composizione per tipo.
+- **Debiti**: finanziamenti a rata fissa (anche a tasso zero, come i micro-finanziamenti) e debiti flessibili (amici e parenti). Nella scheda del finanziamento, TAN, TAEG, spese per rata e una spiegazione con i calcoli del piano alla francese.
+- Movimento **Rata**: dal conto esce la rata intera, il debito scende solo del capitale, interessi e spese contano come spesa (categoria «Interessi»). La divisione si calcola da sola dal residuo e si può correggere a mano. Le rate possono essere proposte ogni mese (automatico) oppure registrate o corrette a mano.
 - Accesso con email e password, con **Password dimenticata?** (email di ripristino).
 - Pagina interna per scegliere la nuova password, se nei modelli email di Firebase imposti l’URL dell’app come URL di azione.
 - **Disconnessione automatica per inattività**, da 5 minuti a 1 ora oppure disattivata (Impostazioni → Sicurezza e sessione). Prima dell’uscita compare un avviso; la scelta vale per il singolo browser.
@@ -24,10 +28,14 @@ src/
   app/auth-screens.tsx  accesso, password dimenticata, nuova password
   app/session-guard.tsx timer di inattività e avviso
   app/ledger-*.tsx      interfaccia dell'app
+  app/patrimonio.tsx    schede Conti, Investimenti e Debiti
+  app/patrimonio-forms.tsx  schede di inserimento di investimenti e debiti (con spiegazione TAN/TAEG)
   app/manage.tsx        modifica, archiviazione ed eliminazione di conti e categorie
   app/recurring.tsx     scadenze e elenco dei movimenti ricorrenti
   app/import-dialog.tsx importazione CSV e ripristino backup
   lib/recurring.ts      calcolo delle scadenze
+  lib/debts.ts          piano di ammortamento, divisione capitale/interessi, stato dei debiti
+  lib/investments.ts    valore, versato e rendimento degli investimenti
   lib/data-io.ts        esportazione, lettura CSV, piano d'importazione, backup
   lib/preferences.ts    tema e uso offline (per dispositivo)
   lib/offline-shell.ts  registrazione del service worker (public/sw.js)

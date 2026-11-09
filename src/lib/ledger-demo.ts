@@ -1,4 +1,5 @@
-import { balanceId, newId, type LedgerRecord, type Movement } from "./ledger";
+import { INTEREST_LABEL, balanceId, newId, type Account, type LedgerRecord, type LoanDetails, type Movement } from "./ledger";
+import { amortization, loanInstallment } from "./debts";
 
 export function sampleLedger(): LedgerRecord[] {
   const snapshots: LedgerRecord[] = [
@@ -28,5 +29,41 @@ export function sampleLedger(): LedgerRecord[] {
     }
     add({ type: "transfer", date: month + "-06", title: "Ricarica Revolut", amount: 19000, accountId: "fineco", toAccountId: "revolut", notes: "" });
   }
-  return [...snapshots, ...movements];
+  // Investimenti: un ETF con PAC mensile e un fondo pensione.
+  const etf: Account = { kind: "account", id: "demo-etf", version: newId(), value: { name: "ETF MSCI World", type: "investment", invest: { assetClass: "equity", contributedBefore: 300000 } } };
+  const pension: Account = { kind: "account", id: "demo-pension", version: newId(), value: { name: "Fondo pensione", type: "investment", invest: { assetClass: "pension", contributedBefore: 180000 } } };
+  const extra: LedgerRecord[] = [etf, pension,
+    { kind: "balance", id: balanceId("demo-etf", "2026-12"), version: newId(), value: { accountId: "demo-etf", month: "2026-12", amount: 318000 } },
+    { kind: "balance", id: balanceId("demo-etf", "2027-03"), version: newId(), value: { accountId: "demo-etf", month: "2027-03", amount: 362500 } },
+    { kind: "balance", id: balanceId("demo-pension", "2026-12"), version: newId(), value: { accountId: "demo-pension", month: "2026-12", amount: 186000 } },
+  ];
+  for (let i = 1; i <= 6; i++) {
+    add({ type: "transfer", date: `2027-0${i}-08`, title: "PAC ETF", amount: 10000, accountId: "fineco", toAccountId: "demo-etf", notes: "" });
+    if (i % 3 === 0) add({ type: "transfer", date: `2027-0${i}-20`, title: "Versamento fondo pensione", amount: 5000, accountId: "fineco", toAccountId: "demo-pension", notes: "" });
+  }
+
+  // Finanziamento auto già iniziato (11 rate pagate prima del 2027) e un prestito da un familiare.
+  const loan: LoanDetails = {
+    kind: "loan", principal: 1000000, tan: 6.9, taeg: 8.2, months: 48, firstDate: "2026-02-15",
+    installment: loanInstallment(1000000, 6.9, 48) + 200, fee: 200, paidBefore: 11, accountId: "fineco", interestLabelId: INTEREST_LABEL,
+  };
+  const plan = amortization(loan);
+  extra.push(
+    { kind: "account", id: "demo-car", version: newId(), value: { name: "Finanziamento auto", type: "debt", debt: loan } },
+    { kind: "balance", id: balanceId("demo-car", "2026-12"), version: newId(), value: { accountId: "demo-car", month: "2026-12", amount: plan[10].residual } },
+    { kind: "account", id: "demo-dad", version: newId(), value: { name: "Prestito da papà", type: "debt", debt: { kind: "flexible", principal: 60000, start: "2026-11-20", accountId: "revolut", note: "Restituisco quando posso" } } },
+    { kind: "balance", id: balanceId("demo-dad", "2026-10"), version: newId(), value: { accountId: "demo-dad", month: "2026-10", amount: 60000 } },
+  );
+  for (let i = 1; i <= 6; i++) {
+    const row = plan[10 + i];
+    add({ type: "repayment", date: `2027-0${i}-15`, title: "Rata Finanziamento auto", amount: row.payment, principal: row.capital, interest: row.interest + row.fee,
+      debtId: "demo-car", accountId: "fineco", labelId: INTEREST_LABEL, notes: "" });
+  }
+  add({ type: "repayment", date: "2027-02-10", title: "Rimborso Prestito da papà", amount: 20000, principal: 20000, interest: 0, debtId: "demo-dad", accountId: "revolut", labelId: INTEREST_LABEL, notes: "" });
+  add({ type: "repayment", date: "2027-05-10", title: "Rimborso Prestito da papà", amount: 15000, principal: 15000, interest: 0, debtId: "demo-dad", accountId: "revolut", labelId: INTEREST_LABEL, notes: "" });
+  extra.push({ kind: "recurring", id: "demo-car-rate", version: newId(), value: {
+    template: { type: "repayment", date: loan.firstDate, title: "Rata Finanziamento auto", amount: loan.installment, principal: loan.installment, interest: 0, debtId: "demo-car", accountId: "fineco", labelId: INTEREST_LABEL, notes: "" },
+    schedule: { frequency: "monthly", every: 1, start: loan.firstDate, end: plan[plan.length - 1].date ?? "", done: 17 },
+  } });
+  return [...snapshots, ...extra, ...movements];
 }

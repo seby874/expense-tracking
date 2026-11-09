@@ -1,5 +1,5 @@
 import {
-  ENTRY_TYPES, deriveLedger, isDefaultId, newId, parseMoney, recordSchema, sameName, subcategoryList,
+  ENTRY_TYPES, INTEREST_LABEL, deriveLedger, isDefaultId, newId, parseMoney, recordSchema, sameName, subcategoryList,
   type Account, type Balance, type Label, type Ledger, type LedgerRecord, type Movement, type Mutation,
 } from "./ledger";
 
@@ -37,15 +37,25 @@ export function csvDocument(header: string[], rows: string[][]) {
 export function movementRows(ledger: Ledger, items: Movement[]) {
   const labels = new Map(ledger.labels.map((label) => [label.id, label.value.name]));
   const accounts = new Map(ledger.accounts.map((account) => [account.id, account.value.name]));
-  return items.map(({ value }) => [
-    value.date, csvCell(ENTRY_TYPES[value.type]), csvCell(value.title),
-    csvNumber(value.type === "expense" ? -value.amount : value.amount),
-    csvCell(value.type !== "transfer" ? labels.get(value.labelId) ?? "" : ""),
-    csvCell(value.type === "expense" ? value.subcategory : ""),
-    csvCell(value.accountId ? accounts.get(value.accountId) ?? "" : ""),
-    csvCell(value.type === "transfer" ? accounts.get(value.toAccountId) ?? "" : ""),
-    csvCell(value.type === "expense" ? value.method : ""), csvCell(value.notes),
-  ]);
+  return items.map(({ value }) => {
+    if (value.type === "repayment") {
+      // Rata: Categoria = debito, Sottocategoria = divisione capitale/interessi (rilette in importazione).
+      return [
+        value.date, csvCell(ENTRY_TYPES.repayment), csvCell(value.title), csvNumber(-value.amount),
+        csvCell(accounts.get(value.debtId) ?? ""), csvCell(`Capitale ${csvNumber(value.principal)} · Interessi ${csvNumber(value.interest)}`),
+        csvCell(value.accountId ? accounts.get(value.accountId) ?? "" : ""), csvCell(""), csvCell(""), csvCell(value.notes),
+      ];
+    }
+    return [
+      value.date, csvCell(ENTRY_TYPES[value.type]), csvCell(value.title),
+      csvNumber(value.type === "expense" ? -value.amount : value.amount),
+      csvCell(value.type !== "transfer" ? labels.get(value.labelId) ?? "" : ""),
+      csvCell(value.type === "expense" ? value.subcategory : ""),
+      csvCell(value.accountId ? accounts.get(value.accountId) ?? "" : ""),
+      csvCell(value.type === "transfer" ? accounts.get(value.toAccountId) ?? "" : ""),
+      csvCell(value.type === "expense" ? value.method : ""), csvCell(value.notes),
+    ];
+  });
 }
 
 export function balanceRows(ledger: Ledger) {
@@ -110,6 +120,7 @@ function normalizeType(value: string): Movement["value"]["type"] | null {
   if (key === "spesa" || key === "expense" || key === "uscita") return "expense";
   if (key === "entrata" || key === "income") return "income";
   if (key === "trasferimento" || key === "transfer" || key === "giroconto") return "transfer";
+  if (key === "rata" || key === "rimborso" || key === "rimborso debito" || key === "repayment") return "repayment";
   return null;
 }
 
@@ -119,7 +130,8 @@ function key(text: string) {
 
 /** Impronta usata per riconoscere i movimenti già presenti (stessa data, tipo, importo, descrizione e voci). */
 export function fingerprint(value: Movement["value"]) {
-  const target = value.type === "transfer" ? `${value.accountId}>${value.toAccountId}` : `${value.labelId}|${value.accountId ?? ""}`;
+  const target = value.type === "transfer" ? `${value.accountId}>${value.toAccountId}`
+    : value.type === "repayment" ? `${value.debtId}|${value.accountId ?? ""}` : `${value.labelId}|${value.accountId ?? ""}`;
   return [value.date, value.type, value.amount, key(value.title), target].join("|");
 }
 
@@ -251,7 +263,18 @@ function planMovements(rows: string[][], ledger: Ledger): ImportPlan {
     const fromName = cell(account);
     const common = { date: entryDate, title: entryTitle, amount: Math.abs(cents), notes: cell(notes).slice(0, 1200) };
     let value: Movement["value"];
-    if (entryType === "transfer") {
+    if (entryType === "repayment") {
+      const debtName = cell(label);
+      if (!debtName) return plan.issues.push({ line, reason: "rata senza il nome del debito" });
+      const split = cell(subcategory).match(/capitale\s+([\d.,-]+).*interessi\s+([\d.,-]+)/i);
+      const principal = split ? parseMoney(split[1]) : null;
+      const interest = split ? parseMoney(split[2]) : null;
+      const valid = principal !== null && interest !== null && principal >= 0 && interest >= 0 && principal + interest === common.amount;
+      value = {
+        ...common, type: "repayment", debtId: lookup.account(debtName, true), accountId: fromName ? lookup.account(fromName) : null,
+        principal: valid ? principal : common.amount, interest: valid ? interest : 0, labelId: INTEREST_LABEL,
+      };
+    } else if (entryType === "transfer") {
       const toName = cell(toAccount);
       if (!fromName || !toName || sameName(fromName, toName)) return plan.issues.push({ line, reason: "trasferimento senza due conti diversi" });
       value = { ...common, type: "transfer", accountId: lookup.account(fromName), toAccountId: lookup.account(toName) };

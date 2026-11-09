@@ -3,8 +3,10 @@ import { z } from "zod";
 export const INITIAL_YEAR = 2027;
 export const MONTHS = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
 export const METHOD_LABELS = ["Carta", "Contanti", "Bonifico", "Addebito diretto", "PayPal", "Altro"];
-export const ACCOUNT_TYPES = { cash: "Liquidità", asset: "Altre attività", debt: "Debito" } as const;
-export const ENTRY_TYPES = { expense: "Spesa", income: "Entrata", transfer: "Trasferimento" } as const;
+export const ACCOUNT_TYPES = { cash: "Liquidità", asset: "Altre attività", investment: "Investimento", debt: "Debito" } as const;
+export const ASSET_CLASSES = { equity: "Azionario", bond: "Obbligazionario", pension: "Previdenza", crypto: "Crypto", deposit: "Conto deposito", other: "Altro" } as const;
+export const ENTRY_TYPES = { expense: "Spesa", income: "Entrata", transfer: "Trasferimento", repayment: "Rata" } as const;
+export const INTEREST_LABEL = "interest";
 export const COLORS = ["#0b8277", "#4a6da5", "#d48351", "#7d65ae", "#c45e78", "#3e8da1", "#a07243", "#667fa6", "#c37c3a", "#77799b", "#608b73", "#c9a23a", "#5e8f3c", "#b05a9a", "#3f9e9a", "#8a6b52"];
 export const MAX_CENTS = 99_999_999_999;
 
@@ -33,7 +35,43 @@ const movementValue = z.discriminatedUnion("type", [
   z.object({ ...movementFields, type: z.literal("expense"), labelId: id, subcategory: z.string().trim().max(80), method: z.string().trim().max(60) }),
   z.object({ ...movementFields, type: z.literal("income"), labelId: id }),
   z.object({ ...movementFields, type: z.literal("transfer"), accountId: id, toAccountId: id }),
+  // Rata o rimborso di un debito: il capitale riduce il debito, interessi e spese (`interest`) sono una spesa
+  // della categoria `labelId`. Dal conto di addebito esce l'importo intero.
+  z.object({ ...movementFields, type: z.literal("repayment"), debtId: id, principal: cents.min(0), interest: cents.min(0), labelId: id })
+    .refine((value) => value.principal + value.interest === value.amount, { message: "Capitale e interessi devono dare l'importo della rata." }),
 ]);
+
+const percentSchema = z.number().min(0).max(100);
+
+/** Finanziamento a rate costanti (piano alla francese) oppure debito flessibile (amici, parenti). */
+export const debtDetailsSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("loan"),
+    principal: cents.positive(),
+    tan: percentSchema,
+    taeg: percentSchema.nullable(),
+    months: z.number().int().min(1).max(600),
+    firstDate: dateSchema,
+    installment: cents.positive(),
+    fee: cents.min(0),
+    paidBefore: z.number().int().min(0).max(600),
+    accountId: id.nullable(),
+    interestLabelId: id,
+  }),
+  z.object({
+    kind: z.literal("flexible"),
+    principal: cents.positive(),
+    start: dateSchema,
+    accountId: id.nullable(),
+    note: z.string().trim().max(200),
+  }),
+]);
+
+export const investDetailsSchema = z.object({
+  assetClass: z.enum(["equity", "bond", "pension", "crypto", "deposit", "other"]),
+  // Quanto avevi già versato prima di usare l'app.
+  contributedBefore: cents.min(0),
+});
 
 export const scheduleSchema = z.object({
   frequency: z.enum(["weekly", "monthly", "yearly"]),
@@ -56,7 +94,10 @@ export const recordSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("account"), id, version,
-    value: z.object({ name, type: z.enum(["cash", "asset", "debt"]), ...flags }),
+    value: z.object({
+      name, type: z.enum(["cash", "asset", "investment", "debt"]), ...flags,
+      debt: debtDetailsSchema.optional(), invest: investDetailsSchema.optional(),
+    }),
   }),
   z.object({
     kind: z.literal("label"), id, version,
@@ -85,6 +126,9 @@ export type Account = Extract<LedgerRecord, { kind: "account" }>;
 export type Label = Extract<LedgerRecord, { kind: "label" }>;
 export type Recurring = Extract<LedgerRecord, { kind: "recurring" }>;
 export type Schedule = Recurring["value"]["schedule"];
+export type DebtDetails = z.infer<typeof debtDetailsSchema>;
+export type LoanDetails = Extract<DebtDetails, { kind: "loan" }>;
+export type InvestDetails = z.infer<typeof investDetailsSchema>;
 export type MovementType = Movement["value"]["type"];
 export type Mutation = z.infer<typeof mutationSchema>;
 
@@ -105,6 +149,7 @@ const EXPENSE_OPTIONS = [
   ["leisure", "Tempo libero", ["Sport", "Abbonamenti", "Intrattenimento"]],
   ["gifts", "Regali", ["Compleanni", "Festività"]],
   ["fees", "Tasse e commissioni", ["Università", "Commissioni bancarie"]],
+  [INTEREST_LABEL, "Interessi", []],
   ["other-expenses", "Altre spese", []],
 ] as const;
 
@@ -173,10 +218,10 @@ export function activeLabels(ledger: Ledger, type: "expense" | "income", keep?: 
 /** Quante voci usano un conto o una categoria: serve a decidere se si può eliminare. */
 export function usage(ledger: Ledger, kind: "account" | "label", recordId: string) {
   const movements = ledger.movements.filter(({ value }) => kind === "account"
-    ? value.accountId === recordId || (value.type === "transfer" && value.toAccountId === recordId)
+    ? value.accountId === recordId || (value.type === "transfer" && value.toAccountId === recordId) || (value.type === "repayment" && value.debtId === recordId)
     : value.type !== "transfer" && value.labelId === recordId);
   const recurring = ledger.recurring.filter(({ value: { template } }) => kind === "account"
-    ? template.accountId === recordId || (template.type === "transfer" && template.toAccountId === recordId)
+    ? template.accountId === recordId || (template.type === "transfer" && template.toAccountId === recordId) || (template.type === "repayment" && template.debtId === recordId)
     : template.type !== "transfer" && template.labelId === recordId);
   const balances = kind === "account" ? ledger.balances.filter(({ value }) => value.accountId === recordId) : [];
   return { movements, recurring, balances };
@@ -255,15 +300,20 @@ export function parseMoney(raw: string) {
   return Number.isSafeInteger(amount) && Math.abs(amount) <= MAX_CENTS ? amount : null;
 }
 
+/** Le rate contano come spesa solo per interessi e spese; il capitale rimborsato va a parte (`repaid`). */
 export function totals(movements: Movement[]) {
   let income = 0;
   let expense = 0;
+  let interest = 0;
+  let repaid = 0;
   for (const { value } of movements) {
     if (value.type === "income") income += value.amount;
     if (value.type === "expense") expense += value.amount;
+    if (value.type === "repayment") { interest += value.interest; repaid += value.principal; }
   }
+  expense += interest;
   const saving = income - expense;
-  return { income, expense, saving, rate: income > 0 ? saving / income : null };
+  return { income, expense, interest, repaid, saving, rate: income > 0 ? saving / income : null };
 }
 
 export function yearlyFlow(ledger: Ledger, year: number) {
@@ -274,9 +324,20 @@ export function yearlyFlow(ledger: Ledger, year: number) {
   return [...monthGroups.entries()].map(([month, movements]) => ({ month, ...totals(movements) }));
 }
 
-export function mix(movements: Movement[], labels: Label[], type: "expense" | "income") {
+export function mix(movements: Movement[], labels: Label[], type: "expense" | "income", accounts: Account[] = []) {
   const values = new Map<string, { amount: number; detail: Map<string, number> }>();
+  const debtNames = new Map(accounts.map((account) => [account.id, `Interessi · ${account.value.name}`]));
   for (const { value } of movements) {
+    if (value.type === "repayment") {
+      // Gli interessi delle rate entrano tra le spese della loro categoria.
+      if (type !== "expense" || !value.interest) continue;
+      const group = values.get(value.labelId) ?? { amount: 0, detail: new Map() };
+      group.amount += value.interest;
+      const detail = debtNames.get(value.debtId) ?? "Rate";
+      group.detail.set(detail, (group.detail.get(detail) ?? 0) + value.interest);
+      values.set(value.labelId, group);
+      continue;
+    }
     if (value.type !== type) continue;
     const group = values.get(value.labelId) ?? { amount: 0, detail: new Map() };
     group.amount += value.amount;
@@ -312,6 +373,12 @@ export function accountBalances(ledger: Ledger, month: string) {
   }
   for (const { value } of ledger.movements) {
     if (value.date.slice(0, 7) > month) continue;
+    if (value.type === "repayment") {
+      // Dal conto esce la rata intera, il debito scende solo del capitale.
+      change(value.accountId, value.date, -value.amount);
+      change(value.debtId, value.date, -value.principal);
+      continue;
+    }
     change(value.accountId, value.date, value.type === "income" ? value.amount : -value.amount);
     if (value.type === "transfer") change(value.toAccountId, value.date, value.amount);
   }
