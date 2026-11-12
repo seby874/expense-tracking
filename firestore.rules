@@ -12,11 +12,16 @@ service cloud.firestore {
 
     // Forma minima di una voce del registro: niente campi estranei,
     // tipi corretti, ID del documento coerente con il contenuto.
+    // updatedAt deve essere l'ora del server: l'app la usa per leggere
+    // solo i documenti cambiati. Le voci eliminate restano come "lapidi"
+    // (deleted: true, value vuoto).
     function isValidEntry(entryId) {
       let data = request.resource.data;
-      return data.keys().hasOnly(['kind', 'id', 'version', 'value'])
-        && data.keys().hasAll(['kind', 'id', 'version', 'value'])
-        && data.kind in ['movement', 'balance', 'account', 'label', 'recurring', 'rule', 'import']
+      return data.keys().hasOnly(['kind', 'id', 'version', 'value', 'updatedAt', 'deleted'])
+        && data.keys().hasAll(['kind', 'id', 'version', 'value', 'updatedAt'])
+        && data.updatedAt == request.time
+        && (!('deleted' in data) || (data.deleted == true && data.value.size() == 0))
+        && data.kind in ['movement', 'balance', 'account', 'label']
         && data.id is string
         && data.id.size() > 0
         && data.id.size() <= 73
@@ -24,11 +29,12 @@ service cloud.firestore {
         && data.version is string
         && data.version.size() == 36
         && data.value is map
-        && data.value.size() <= 16;
+        && data.value.size() <= 12;
     }
 
     match /users/{uid}/ledger/{entryId} {
-      allow read, delete: if isOwner(uid);
+      // Niente cancellazioni dal client: l'app scrive una lapide al loro posto.
+      allow read: if isOwner(uid);
       allow create, update: if isOwner(uid) && isValidEntry(entryId);
     }
 

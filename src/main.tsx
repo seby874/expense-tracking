@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
-import { auth, offlineEnabled } from "./lib/firebase";
-import { flushPending } from "./lib/local-ledger";
-import { applyTheme, readTheme, requestCacheClear, setNoticeAfterReload, takeNoticeAfterReload } from "./lib/preferences";
-import { setupOfflineShell } from "./lib/offline-shell";
+import { auth } from "./lib/firebase";
 import { APP_NAME } from "./lib/config";
 import { isIdleExpired, readIdleMinutes, saveIdleMinutes } from "./lib/session";
 import { requestPasswordReset } from "./lib/auth-actions";
@@ -28,17 +25,13 @@ function readEmailAction() {
 }
 
 const initialAction = readEmailAction();
-const initialNotice = takeNoticeAfterReload();
-
-applyTheme(readTheme());
-setupOfflineShell(offlineEnabled);
 
 function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [action, setAction] = useState(initialAction);
   const [screen, setScreen] = useState<"login" | "forgot">("login");
   const [forgotEmail, setForgotEmail] = useState("");
-  const [notice, setNotice] = useState<AuthNotice | null>(initialNotice ? { tone: "info", text: initialNotice } : null);
+  const [notice, setNotice] = useState<AuthNotice | null>(null);
   const [idleMinutes, setIdleMinutes] = useState(readIdleMinutes);
 
   useEffect(() => onAuthStateChanged(auth, (next) => {
@@ -54,17 +47,6 @@ function App() {
   }), []);
 
   const logout = useCallback(async (reason?: AuthNotice) => {
-    if (offlineEnabled) {
-      // Con l'uso offline la copia locale si cancella all'uscita, ma solo se tutto è già sincronizzato.
-      const synced = await flushPending(3000);
-      if (!synced && !reason && !window.confirm("Alcune modifiche non sono ancora arrivate sul cloud perché sei offline.\n\nSe esci ora restano su questo dispositivo e si sincronizzeranno al prossimo accesso. Vuoi uscire?")) {
-        return;
-      }
-      if (synced) requestCacheClear();
-      if (reason) setNoticeAfterReload(reason.text);
-      try { await signOut(auth); } finally { window.location.reload(); }
-      return;
-    }
     setNotice(reason ?? null);
     setScreen("login");
     try {
