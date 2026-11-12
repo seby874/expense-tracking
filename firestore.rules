@@ -21,7 +21,7 @@ service cloud.firestore {
         && data.keys().hasAll(['kind', 'id', 'version', 'value', 'updatedAt'])
         && data.updatedAt == request.time
         && (!('deleted' in data) || (data.deleted == true && data.value.size() == 0))
-        && data.kind in ['movement', 'balance', 'account', 'label']
+        && data.kind in ['movement', 'balance', 'account', 'label', 'recurring', 'rule', 'import']
         && data.id is string
         && data.id.size() > 0
         && data.id.size() <= 73
@@ -29,7 +29,7 @@ service cloud.firestore {
         && data.version is string
         && data.version.size() == 36
         && data.value is map
-        && data.value.size() <= 12;
+        && data.value.size() <= 16;
     }
 
     match /users/{uid}/ledger/{entryId} {

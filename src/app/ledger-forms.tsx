@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Trash2, X } from "lucide-react";
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Calculator, HandCoins, Plus, Repeat, Split, Trash2, X } from "lucide-react";
 import {
-  ACCOUNT_TYPES, ENTRY_TYPES, METHOD_LABELS, balanceId, parseMoney, subcategories,
-  type Account, type Balance, type Label, type Ledger, type LedgerRecord, type Movement, type MovementType,
+  ENTRY_TYPES, INTEREST_LABEL, METHOD_LABELS, activeLabels, allTags, balanceId, money, parseMoney, sameName, subcategoryList,
+  type Account, type Balance, type Ledger, type LedgerRecord, type Movement, type MovementType, type Part, type Schedule,
 } from "../lib/ledger";
+import { debtDetails, linkedRecurring, splitRepayment } from "../lib/debts";
+import { TagInput } from "./tags";
 
-export const TYPE_ICONS = { income: ArrowDownLeft, expense: ArrowUpRight, transfer: ArrowLeftRight };
+type PartDraft = { key: number; target: string; subcategory: string; amount: string };
+let partKey = 0;
+
+export const TYPE_ICONS = { income: ArrowDownLeft, expense: ArrowUpRight, transfer: ArrowLeftRight, repayment: HandCoins };
 
 export function Modal({ title, hint, busy, onClose, children }: {
   title: string; hint?: string; busy: boolean; onClose: () => void; children: ReactNode;
@@ -37,7 +42,7 @@ type SaveProps = {
   id: string; busy: boolean; error: string; onSave: (record: LedgerRecord) => void;
 };
 
-function field(data: FormData, key: string) {
+export function field(data: FormData, key: string) {
   return String(data.get(key) ?? "").trim();
 }
 
@@ -45,20 +50,80 @@ function amountInput(amount: number | undefined) {
   return amount === undefined ? "" : (amount / 100).toFixed(2).replace(".", ",");
 }
 
-function Submit({ busy, children = "Salva" }: { busy: boolean; children?: ReactNode }) {
+export function Submit({ busy, children = "Salva" }: { busy: boolean; children?: ReactNode }) {
   return <button type="submit" className="button primary" disabled={busy}>{busy ? "Salvataggio…" : children}</button>;
 }
 
-export function MovementForm({ id, busy, error, onSave, ledger, initial, date, initialType, onRemove }: SaveProps & {
-  ledger: Ledger; initial?: Movement; date: string; initialType: MovementType; onRemove: (record: Movement) => void;
+export type MovementResult = {
+  movement: Movement["value"];
+  newSubcategory: string | null;
+  schedule: Pick<Schedule, "frequency" | "every" | "end"> | null;
+  paused: boolean;
+};
+
+const NEW_SUBCATEGORY = "__new__";
+const FREQUENCIES = { weekly: "Settimane", monthly: "Mesi", yearly: "Anni" } as const;
+
+/**
+ * Modulo unico per: movimento normale, registrazione di una scadenza ricorrente
+ * ("occurrence") e modifica di un movimento ricorrente ("recurring").
+ */
+export function MovementForm({ busy, error, ledger, prefill, date, mode, schedule, paused = false, canRemove, onSubmit, onRemove, editingId, fresh = false }: {
+  busy: boolean; error: string; ledger: Ledger; prefill?: Movement["value"]; date: string;
+  mode: "movement" | "occurrence" | "recurring"; schedule?: Schedule; paused?: boolean;
+  canRemove: boolean; onSubmit: (result: MovementResult) => void; onRemove?: () => void;
+  /** Id del movimento in modifica (escluso dal calcolo del residuo). */ editingId?: string;
+  /** `prefill` è solo una proposta per un movimento nuovo (es. "Registra rata"). */ fresh?: boolean;
 }) {
-  const value = initial?.value;
-  const [type, setType] = useState(value?.type ?? initialType);
+  const value = prefill;
+  const [type, setType] = useState<MovementType>(value?.type ?? "expense");
+  const [amountText, setAmountText] = useState(value?.amount ? amountInput(value.amount) : "");
+  const [dateText, setDateText] = useState(value?.date ?? date);
+  const [debtId, setDebtId] = useState(value?.type === "repayment" ? value.debtId : "");
+  // Una rata già salvata con una divisione diversa da quella calcolata resta "a mano".
+  const [manualSplit, setManualSplit] = useState(() => {
+    if (fresh || value?.type !== "repayment") return false;
+    const saved = ledger.accounts.find((account) => account.id === value.debtId);
+    return debtDetails(saved)?.kind === "loan" && splitRepayment(ledger, saved, value.date, value.amount, editingId).interest !== value.interest;
+  });
+  const [interestText, setInterestText] = useState(value?.type === "repayment" ? amountInput(value.interest) : "");
+  const titleRef = useRef<HTMLInputElement>(null);
+  const accountRef = useRef<HTMLSelectElement>(null);
+  const debts = ledger.accounts.filter((account) => account.value.type === "debt" && (!account.value.archived || account.id === debtId));
+  const debt = debts.find((account) => account.id === debtId);
+  const amountValue = parseMoney(amountText);
+  const autoSplit = type === "repayment" && debt && amountValue !== null && amountValue > 0 && /^\d{4}-\d{2}-\d{2}$/.test(dateText)
+    ? splitRepayment(ledger, debt, dateText, amountValue, editingId) : null;
   const [labelId, setLabelId] = useState(value && value.type !== "transfer" ? value.labelId : "");
   const [subcategory, setSubcategory] = useState(value?.type === "expense" ? value.subcategory : "");
+  const [newName, setNewName] = useState("");
+  const [repeat, setRepeat] = useState(mode === "recurring");
   const [validation, setValidation] = useState("");
-  const choices = ledger.labels.filter((label) => label.value.type === type);
-  const accounts = ledger.accounts.filter((account) => account.value.type !== "debt");
+  const [tags, setTags] = useState<string[]>(value?.tags ?? []);
+  // Spesa divisa: ogni parte va a una categoria («label:id») o a un credito («credit:id»).
+  const [parts, setParts] = useState<PartDraft[] | null>(() => (value?.type === "expense" && value.parts
+    ? value.parts.map((part) => ({ key: partKey++, target: part.creditId ? `credit:${part.creditId}` : `label:${part.labelId}`, subcategory: part.subcategory ?? "", amount: amountInput(part.amount) }))
+    : null));
+  const receivables = ledger.accounts.filter((account) => account.value.type === "receivable" && (!account.value.archived || (value?.type === "expense" && value.parts?.some((part) => part.creditId === account.id))));
+  const keepLabel = value && value.type !== "transfer" ? value.labelId : null;
+  const choices = activeLabels(ledger, type === "income" ? "income" : "expense", keepLabel);
+  // (per le rate la categoria degli interessi arriva dal debito)
+  const keepAccounts = [value?.accountId ?? null, value?.type === "transfer" ? value.toAccountId : null];
+  // I crediti (soldi che ti devono) si muovono solo con i trasferimenti.
+  const accounts = ledger.accounts.filter((account) => account.value.type !== "debt" && (type === "transfer" || account.value.type !== "receivable")
+    && (!account.value.archived || keepAccounts.includes(account.id)));
+
+  function chooseDebt(id: string) {
+    setDebtId(id);
+    const chosen = ledger.accounts.find((account) => account.id === id);
+    const details = debtDetails(chosen);
+    if (!chosen) return;
+    if (titleRef.current && !titleRef.current.value.trim()) titleRef.current.value = `${details?.kind === "flexible" ? "Rimborso" : "Rata"} ${chosen.value.name}`.slice(0, 160);
+    if (details?.kind === "loan" && !amountText.trim()) setAmountText(amountInput(details.installment));
+    if (details?.accountId && accountRef.current && !accountRef.current.value) accountRef.current.value = details.accountId;
+  }
+  const list = type === "expense" && labelId ? subcategoryList(ledger, labelId) : [];
+  if (subcategory && subcategory !== NEW_SUBCATEGORY && !list.some((item) => sameName(item, subcategory))) list.push(subcategory);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -74,63 +139,202 @@ export function MovementForm({ id, busy, error, onSave, ledger, initial, date, i
       notes: field(data, "notes"),
       accountId: field(data, "account") || null,
       amount,
+      ...(tags.length ? { tags } : {}),
+      // Un movimento importato resta collegato alla sua importazione (per annullarla e per le regole).
+      ...(value?.origin && !fresh && mode === "movement" ? { origin: value.origin } : {}),
     };
     let movement: Movement["value"];
-    if (type === "transfer") {
+    let added: string | null = null;
+    if (type === "repayment") {
+      if (!debt) {
+        setValidation("Scegli il debito da rimborsare.");
+        return;
+      }
+      let interest = 0;
+      if (mode !== "recurring") {
+        if (manualSplit) {
+          const typed = parseMoney(interestText || "0");
+          if (typed === null || typed < 0 || typed > amount) {
+            setValidation("Gli interessi devono essere tra zero e l’importo della rata.");
+            return;
+          }
+          interest = typed;
+        } else {
+          interest = splitRepayment(ledger, debt, common.date, amount, editingId).interest;
+        }
+      }
+      const details = debtDetails(debt);
+      const wanted = details?.kind === "loan" ? details.interestLabelId : INTEREST_LABEL;
+      const labelId = ledger.labels.some((label) => label.id === wanted) ? wanted
+        : ledger.labels.find((label) => label.value.type === "expense")?.id ?? INTEREST_LABEL;
+      movement = { ...common, type, debtId: debt.id, principal: amount - interest, interest, labelId };
+    } else if (type === "transfer") {
       const toAccountId = field(data, "to-account");
       if (!common.accountId || !toAccountId || common.accountId === toAccountId) {
         setValidation("Scegli due conti diversi.");
         return;
       }
       movement = { ...common, type, accountId: common.accountId, toAccountId };
+    } else if (type === "expense" && parts) {
+      const built: Part[] = [];
+      for (const draft of parts) {
+        const cents = parseMoney(draft.amount);
+        if (!draft.target || cents === null || cents <= 0) {
+          setValidation("Ogni parte ha bisogno di una categoria (o un credito) e di un importo maggiore di zero.");
+          return;
+        }
+        const [kind, targetId] = draft.target.split(":");
+        built.push(kind === "credit" ? { amount: cents, creditId: targetId } : { amount: cents, labelId: targetId, ...(draft.subcategory ? { subcategory: draft.subcategory } : {}) });
+      }
+      const total = built.reduce((sum, part) => sum + part.amount, 0);
+      if (built.length < 2) { setValidation("Una spesa divisa ha almeno due parti."); return; }
+      if (total !== amount) { setValidation(`Le parti sommano ${money(total)}: devono fare ${money(amount)}.`); return; }
+      const first = built.find((part) => part.labelId);
+      if (!first?.labelId) { setValidation("Almeno una parte deve andare a una categoria di spesa: il resto può andare a un credito."); return; }
+      movement = { ...common, type, labelId: first.labelId, subcategory: first.subcategory ?? "", method: field(data, "method"), parts: built };
     } else if (type === "expense") {
-      movement = { ...common, type, labelId, subcategory, method: field(data, "method") };
+      let chosen = subcategory;
+      if (subcategory === NEW_SUBCATEGORY) {
+        const typed = newName.trim().slice(0, 80);
+        if (!typed) {
+          setValidation("Scrivi il nome della nuova sottocategoria oppure scegline una dall’elenco.");
+          return;
+        }
+        const existing = subcategoryList(ledger, labelId).find((item) => sameName(item, typed));
+        chosen = existing ?? typed;
+        if (!existing) added = typed;
+      }
+      movement = { ...common, type, labelId, subcategory: chosen, method: field(data, "method") };
     } else {
       movement = { ...common, type, labelId };
     }
+    let plan: MovementResult["schedule"] = null;
+    const alreadyRepeating = mode === "movement" && type === "repayment" && !!debt && !!linkedRecurring(ledger, debt.id);
+    if (repeat && !alreadyRepeating) {
+      const every = Number(field(data, "every"));
+      const end = field(data, "end");
+      if (!Number.isInteger(every) || every < 1 || every > 12) {
+        setValidation("La ripetizione deve essere tra 1 e 12.");
+        return;
+      }
+      if (end && end < common.date) {
+        setValidation("La data di fine non può essere precedente alla prima scadenza.");
+        return;
+      }
+      plan = { frequency: field(data, "frequency") as Schedule["frequency"], every, end };
+    }
     setValidation("");
-    onSave({ kind: "movement", id, version: initial?.version ?? null, value: movement });
+    onSubmit({ movement, newSubcategory: added, schedule: plan, paused: data.get("paused") === "on" });
   }
 
   return (
     <form className="editor" onSubmit={submit}>
-      <div className="segmented" aria-label="Tipo di movimento">
-        {(["expense", "income", "transfer"] as const).map((entryType) => {
+      <div className="segmented type-switch" aria-label="Tipo di movimento">
+        {(["expense", "income", "transfer", "repayment"] as const).map((entryType) => {
           const Icon = TYPE_ICONS[entryType];
           return <button key={entryType} type="button" aria-pressed={type === entryType}
             onClick={() => {
               if (type === entryType) return;
-              setType(entryType); setLabelId(""); setSubcategory(""); setValidation("");
+              setType(entryType); setLabelId(""); setSubcategory(""); setNewName(""); setValidation(""); setDebtId(""); setManualSplit(false); setParts(null);
             }}
             disabled={busy}>
             <Icon size={16} />{ENTRY_TYPES[entryType]}
           </button>;
         })}
       </div>
-      <label>Descrizione<input name="title" placeholder={type === "transfer" ? "Es. Giroconto" : "Es. Spesa settimanale"}
+      {type === "repayment" && <label>Debito
+        <select value={debtId} onChange={(event) => chooseDebt(event.target.value)} required>
+          <option value="">{debts.length ? "Scegli il debito" : "Nessun debito: crealo in Patrimonio → Debiti"}</option>
+          {debts.map((item) => <option key={item.id} value={item.id}>{item.value.name}</option>)}
+        </select>
+      </label>}
+      <label>Descrizione<input ref={titleRef} name="title" placeholder={type === "transfer" ? "Es. Giroconto" : type === "repayment" ? "Es. Rata finanziamento" : "Es. Spesa settimanale"}
         defaultValue={value?.title ?? ""} maxLength={160} required /></label>
       <div className="form-grid">
-        <label>Importo in euro<input name="amount" inputMode="decimal" placeholder="0,00"
-          defaultValue={amountInput(value?.amount)} maxLength={22} required /></label>
-        <label>Data<input name="date" type="date" min="1900-01-01" max="2100-12-31"
-          defaultValue={value?.date ?? date} required /></label>
+        <label>{type === "repayment" ? "Importo pagato in euro" : "Importo in euro"}<input name="amount" inputMode="decimal" placeholder="0,00"
+          value={amountText} onChange={(event) => setAmountText(event.target.value)} maxLength={22} required /></label>
+        <label>{mode === "recurring" ? (schedule && schedule.done > 0 ? "Prossima scadenza" : "Prima scadenza") : "Data"}
+          <input name="date" type="date" min="1900-01-01" max="2100-12-31"
+          value={dateText} onChange={(event) => setDateText(event.target.value)} required /></label>
       </div>
-      {type !== "transfer" && <div className={type === "expense" ? "form-grid" : undefined}>
+      {type === "repayment" && mode === "recurring" && <p className="field-note">La divisione tra capitale e interessi si calcola a ogni scadenza, sul debito residuo di quel momento.</p>}
+      {type === "repayment" && mode !== "recurring" && debt && <div className="split-box" aria-live="polite">
+        <div className="split-head"><Calculator size={15} />
+          <strong>{debtDetails(debt)?.kind === "loan" ? "Divisione della rata" : "Rimborso"}</strong>
+          {debtDetails(debt)?.kind === "loan" && <label className="split-toggle"><input type="checkbox" checked={manualSplit}
+            onChange={(event) => { setManualSplit(event.target.checked); if (event.target.checked && autoSplit) setInterestText(amountInput(autoSplit.interest)); }} /> Modifica a mano</label>}
+        </div>
+        {manualSplit ? <div className="form-grid">
+          <label>Interessi e spese<input inputMode="decimal" value={interestText} onChange={(event) => setInterestText(event.target.value)} placeholder="0,00" /></label>
+          <label>Capitale<input value={amountValue !== null && parseMoney(interestText || "0") !== null ? amountInput(Math.max(0, amountValue - (parseMoney(interestText || "0") ?? 0))) : ""} readOnly tabIndex={-1} /></label>
+        </div> : autoSplit ? <p>
+          {debtDetails(debt)?.kind === "loan" ? <>
+            <span><b>{money(autoSplit.principal)}</b> capitale, scala il debito</span>
+            <span><b>{money(autoSplit.interest)}</b> interessi e spese, conta come spesa</span>
+          </> : <span><b>{money(autoSplit.principal)}</b> scala tutto dal debito, senza interessi</span>}
+          {autoSplit.residual !== null && <small>{autoSplit.estimated ? "Residuo stimato dal piano" : "Residuo"} prima di questo pagamento: {money(autoSplit.residual)} · dopo: {money(autoSplit.residual - autoSplit.principal)}</small>}
+        </p> : <p><small>Inserisci importo e data per vedere la divisione.</small></p>}
+      </div>}
+      {type === "expense" && parts && <fieldset className="split-parts">
+        <legend><Split size={15} /> Spesa divisa</legend>
+        {parts.map((part, index) => {
+          const labelTarget = part.target.startsWith("label:") ? part.target.slice(6) : "";
+          const partSubs = labelTarget ? subcategoryList(ledger, labelTarget) : [];
+          const update = (change: Partial<PartDraft>) => setParts((list) => list && list.map((item) => (item.key === part.key ? { ...item, ...change } : item)));
+          return <div className="split-part" key={part.key}>
+            <select value={part.target} aria-label={`Parte ${index + 1}: categoria o credito`} onChange={(event) => update({ target: event.target.value, subcategory: "" })}>
+              <option value="">Categoria o credito</option>
+              <optgroup label="Categorie di spesa">{choices.map((label) => <option key={label.id} value={`label:${label.id}`}>{label.value.name}</option>)}</optgroup>
+              {receivables.length > 0 && <optgroup label="Anticipato per altri (credito)">{receivables.map((account) => <option key={account.id} value={`credit:${account.id}`}>{account.value.name}</option>)}</optgroup>}
+            </select>
+            {labelTarget ? <select value={part.subcategory} aria-label={`Parte ${index + 1}: sottocategoria`} onChange={(event) => update({ subcategory: event.target.value })}>
+              <option value="">Nessuna sottocategoria</option>
+              {partSubs.map((item) => <option key={item} value={item}>{item}</option>)}
+              {part.subcategory && !partSubs.includes(part.subcategory) && <option value={part.subcategory}>{part.subcategory}</option>}
+            </select> : <span className="split-part-note">{part.target.startsWith("credit:") ? "Te li deve restituire" : ""}</span>}
+            <input inputMode="decimal" placeholder="0,00" value={part.amount} aria-label={`Parte ${index + 1}: importo`} onChange={(event) => update({ amount: event.target.value })} />
+            <button type="button" className="icon-button quiet" aria-label={`Togli la parte ${index + 1}`} onClick={() => setParts((list) => {
+              const next = list ? list.filter((item) => item.key !== part.key) : null;
+              return next && next.length >= 1 ? next : null;
+            })}><X size={15} /></button>
+          </div>;
+        })}
+        {(() => {
+          const total = parts.reduce((sum, part) => sum + (parseMoney(part.amount) ?? 0), 0);
+          const left = (amountValue ?? 0) - total;
+          return <div className="split-foot">
+            <button type="button" className="text-button" onClick={() => setParts((list) => [...(list ?? []), { key: partKey++, target: "", subcategory: "", amount: left > 0 ? amountInput(left) : "" }])} disabled={parts.length >= 10}><Plus size={14} /> Aggiungi parte</button>
+            <span className={left === 0 ? "split-left ok" : "split-left"}>{left === 0 ? "Parti complete" : left > 0 ? `Da assegnare: ${money(left)}` : `In più: ${money(-left)}`}</span>
+          </div>;
+        })()}
+        <p className="field-note">Le parti verso un credito non contano come spesa: aumentano quanto ti devono.</p>
+      </fieldset>}
+      {type === "expense" && !parts && labelId && mode !== "recurring" && <button type="button" className="text-button split-open" onClick={() => setParts([
+        { key: partKey++, target: `label:${labelId}`, subcategory: subcategory === NEW_SUBCATEGORY ? "" : subcategory, amount: amountText },
+        { key: partKey++, target: "", subcategory: "", amount: "" },
+      ])}><Split size={14} /> Dividi la spesa tra più categorie o anticipata per altri</button>}
+      {type !== "transfer" && type !== "repayment" && !(type === "expense" && parts) && <div className={type === "expense" ? "form-grid" : undefined}>
         <label>{type === "income" ? "Fonte di entrata" : "Categoria"}
-          <select value={labelId} onChange={(event) => { setLabelId(event.target.value); setSubcategory(""); }} required>
+          <select value={labelId} onChange={(event) => { setLabelId(event.target.value); setSubcategory(""); setNewName(""); }} required>
             <option value="">Scegli una voce</option>
-            {choices.map((label) => <option key={label.id} value={label.id}>{label.value.name}</option>)}
+            {choices.map((label) => <option key={label.id} value={label.id}>{label.value.name}{label.value.archived ? " (archiviata)" : ""}</option>)}
           </select>
         </label>
         {type === "expense" && <label>Sottocategoria <span className="optional">facoltativa</span>
-          <input list="subcategories" value={subcategory} onChange={(event) => setSubcategory(event.target.value)}
-            placeholder="Scegli o scrivi" maxLength={80} />
-          <datalist id="subcategories">{subcategories(ledger, labelId).map((item) => <option value={item} key={item} />)}</datalist>
+          <select value={subcategory} disabled={!labelId} onChange={(event) => { setSubcategory(event.target.value); setNewName(""); }}>
+            <option value="">{labelId ? "Nessuna" : "Scegli prima la categoria"}</option>
+            {list.map((item) => <option value={item} key={item}>{item}</option>)}
+            {labelId && <option value={NEW_SUBCATEGORY}>+ Nuova sottocategoria…</option>}
+          </select>
         </label>}
       </div>}
+      {type === "expense" && subcategory === NEW_SUBCATEGORY && <label>Nome della nuova sottocategoria
+        <input value={newName} onChange={(event) => setNewName(event.target.value)} maxLength={80} placeholder="Es. Condominio" autoFocus />
+        <span className="field-note">Verrà aggiunta all’elenco della categoria.</span>
+      </label>}
       <div className={type !== "income" ? "form-grid" : undefined}>
-        <label>{type === "transfer" ? "Dal conto" : "Conto"} {type !== "transfer" && <span className="optional">facoltativo</span>}
-          <select name="account" defaultValue={value?.accountId ?? ""} required={type === "transfer"}>
+        <label>{type === "transfer" ? "Dal conto" : type === "repayment" ? "Conto di addebito" : "Conto"} {type !== "transfer" && <span className="optional">facoltativo</span>}
+          <select ref={accountRef} name="account" defaultValue={value?.accountId ?? ""} required={type === "transfer"}>
             <option value="">{type === "transfer" ? "Scegli un conto" : "Nessun conto"}</option>
             {accounts.map((account) => <option value={account.id} key={account.id}>{account.value.name}</option>)}
           </select>
@@ -150,11 +354,38 @@ export function MovementForm({ id, busy, error, onSave, ledger, initial, date, i
       <label>Note <span className="optional">facoltative</span>
         <textarea name="notes" rows={2} maxLength={1200} placeholder="Aggiungi un dettaglio" defaultValue={value?.notes ?? ""} />
       </label>
+      <div className="field-block"><span className="field-label">Tag <span className="optional">facoltativi</span></span>
+        <TagInput value={tags} onChange={setTags} suggestions={allTags(ledger).map((item) => item.name)} /></div>
+      {mode === "movement" && (!value || fresh) && !(type === "repayment" && debt && linkedRecurring(ledger, debt.id)) && <label className="check-row">
+        <input type="checkbox" checked={repeat} onChange={(event) => setRepeat(event.target.checked)} />
+        <span><strong>Ripeti questo movimento</strong><small>Le prossime scadenze ti verranno proposte da confermare.</small></span>
+      </label>}
+      {type === "repayment" && debt && mode === "movement" && linkedRecurring(ledger, debt.id) && <p className="field-note">Questo debito ha già le rate proposte ogni mese: se registri la rata del mese della prossima scadenza, quella scadenza risulta pagata.</p>}
+      {repeat && !(mode === "movement" && type === "repayment" && debt && linkedRecurring(ledger, debt.id)) && <fieldset className="schedule-fields">
+        <legend><Repeat size={15} /> Ripetizione</legend>
+        <div className="form-grid">
+          <label>Ogni
+            <span className="inline-pair">
+              <input name="every" type="number" min={1} max={12} defaultValue={schedule?.every ?? 1} required />
+              <select name="frequency" defaultValue={schedule?.frequency ?? "monthly"}>
+                {Object.entries(FREQUENCIES).map(([key, title]) => <option key={key} value={key}>{title}</option>)}
+              </select>
+            </span>
+          </label>
+          <label>Fine <span className="optional">facoltativa</span>
+            <input name="end" type="date" min="1900-01-01" max="2100-12-31" defaultValue={schedule?.end ?? ""} />
+          </label>
+        </div>
+        {mode === "recurring" && <label className="check-row">
+          <input type="checkbox" name="paused" defaultChecked={paused} />
+          <span><strong>In pausa</strong><small>Le scadenze non vengono proposte finché non la togli.</small></span>
+        </label>}
+      </fieldset>}
       <FormError message={validation || error} />
       <div className="modal-actions">
-        {initial?.version && <button type="button" className="button danger-quiet" disabled={busy}
-          onClick={() => onRemove(initial)}><Trash2 size={16} /> Elimina</button>}
-        <Submit busy={busy}>Salva movimento</Submit>
+        {canRemove && onRemove && <button type="button" className="button danger-quiet" disabled={busy}
+          onClick={onRemove}><Trash2 size={16} /> Elimina</button>}
+        <Submit busy={busy}>{mode === "recurring" ? "Salva ricorrente" : mode === "occurrence" ? "Registra movimento" : "Salva movimento"}</Submit>
       </div>
     </form>
   );
@@ -168,6 +399,7 @@ export function BalanceForm({ busy, error, onSave, account, initialMonth, ledger
   const id = balanceId(account.id, month);
   const snapshot = ledger.balances.find((balance) => balance.id === id);
   const debt = account.value.type === "debt";
+  const investment = account.value.type === "investment";
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -185,44 +417,20 @@ export function BalanceForm({ busy, error, onSave, account, initialMonth, ledger
       <input type="month" value={month} min="1900-01" max="2100-12" required
         onChange={(event) => { setMonth(event.target.value); setValidation(""); }} />
     </label>
-    <label>{debt ? "Debito residuo in euro" : "Saldo a fine mese in euro"}
+    <label>{debt ? "Debito residuo a fine mese in euro" : investment ? "Valore a fine mese in euro" : "Saldo a fine mese in euro"}
       <input key={month} name="amount" inputMode="decimal" placeholder="0,00" required maxLength={22}
         defaultValue={amountInput(snapshot?.value.amount)} />
     </label>
     <p className="form-help">{debt
-      ? "Il debito residuo viene sottratto dal patrimonio netto."
-      : "Da questo saldo partono i movimenti collegati dei mesi successivi. Per un saldo di partenza, usa il mese precedente al primo movimento."}</p>
+      ? "Usa la cifra dell’estratto conto o quella concordata. Comprende le rate di quel mese; le rate dei mesi successivi la riducono in automatico."
+      : investment
+        ? "Il valore di mercato a fine mese (dall’app della banca o del broker). Versamenti e prelievi dei mesi successivi si sommano a questo valore."
+        : "Da questo saldo partono i movimenti collegati dei mesi successivi. Per un saldo di partenza, usa il mese precedente al primo movimento."}</p>
     <FormError message={validation || error} />
     <div className="modal-actions">
       {snapshot?.version && <button type="button" className="button danger-quiet" disabled={busy}
         onClick={() => onRemove(snapshot)}><Trash2 size={16} /> Elimina</button>}
       <Submit busy={busy}>Salva saldo</Submit>
     </div>
-  </form>;
-}
-
-export function NameForm({ id, busy, error, onSave, initial, kind, labelType }: SaveProps & {
-  initial?: Account | Label; kind: "account" | "label"; labelType: "expense" | "income";
-}) {
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    const name = field(data, "name");
-    if (kind === "account") {
-      const type = initial?.kind === "account" ? initial.value.type : field(data, "type") as Account["value"]["type"];
-      onSave({ kind, id, version: initial?.version ?? null, value: { name, type } });
-    } else {
-      onSave({ kind, id, version: initial?.version ?? null, value: { name, type: labelType } });
-    }
-  }
-  return <form className="editor" onSubmit={submit}>
-    <label>Nome<input name="name" defaultValue={initial?.value.name ?? ""} placeholder={kind === "account" ? "Es. Contanti" : "Nome della voce"} maxLength={100} required /></label>
-    {kind === "account" && !initial && <label>Tipo di conto
-      <select name="type" defaultValue="cash">
-        {Object.entries(ACCOUNT_TYPES).map(([value, title]) => <option value={value} key={value}>{title}</option>)}
-      </select>
-    </label>}
-    <FormError message={error} />
-    <div className="modal-actions"><Submit busy={busy} /></div>
   </form>;
 }
