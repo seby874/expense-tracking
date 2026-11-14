@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { auth, offlineEnabled } from "./lib/firebase";
 import { flushPending } from "./lib/local-ledger";
-import { applyTheme, readTheme, requestCacheClear, setNoticeAfterReload, takeNoticeAfterReload } from "./lib/preferences";
+import { applyLook, applyTheme, readLook, readTheme, requestCacheClear, setNoticeAfterReload, takeNoticeAfterReload } from "./lib/preferences";
 import { setupOfflineShell } from "./lib/offline-shell";
 import { APP_NAME } from "./lib/config";
 import { isIdleExpired, readIdleMinutes, saveIdleMinutes } from "./lib/session";
@@ -31,6 +31,7 @@ const initialAction = readEmailAction();
 const initialNotice = takeNoticeAfterReload();
 
 applyTheme(readTheme());
+applyLook(readLook());
 setupOfflineShell(offlineEnabled);
 
 function App() {

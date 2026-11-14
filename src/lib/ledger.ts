@@ -153,6 +153,21 @@ export const scheduleSchema = z.object({
   done: z.number().int().min(0).max(100_000),
 });
 
+/** Preferito: un movimento modello da registrare con un tocco (importo facoltativo). */
+export const templateValueSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  type: z.enum(["expense", "income", "transfer"]),
+  title: z.string().trim().min(1).max(160),
+  amount: cents.positive().nullable(),
+  labelId: id.nullable(),
+  subcategory: z.string().trim().max(80),
+  accountId: id.nullable(),
+  toAccountId: id.nullable(),
+  method: z.string().trim().max(60),
+  tags: z.array(tagName).max(MAX_TAGS).optional(),
+  order: z.number().int().min(0).max(10_000),
+});
+
 // `archived`: nascosto dai menu ma con lo storico intatto.
 // `removed`: segna come eliminata una voce predefinita (che altrimenti tornerebbe dal codice).
 const flags = { archived: z.boolean().optional(), removed: z.boolean().optional() };
@@ -181,9 +196,11 @@ export const recordSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("rule"), id, version, value: ruleValueSchema }),
   z.object({ kind: z.literal("import"), id, version, value: importValueSchema }),
+  z.object({ kind: z.literal("template"), id, version, value: templateValueSchema }),
 ]);
 
-export const RECORD_KINDS = ["movement", "balance", "account", "label", "recurring", "rule", "import"] as const;
+// "rule" e "import" restano solo per leggere i dati salvati dalle versioni con l'importazione degli estratti conto.
+export const RECORD_KINDS = ["movement", "balance", "account", "label", "recurring", "rule", "import", "template"] as const;
 
 export const mutationSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("save"), record: recordSchema }),
@@ -192,6 +209,8 @@ export const mutationSchema = z.discriminatedUnion("op", [
     kind: z.enum(RECORD_KINDS),
     id: z.string().min(1).max(73),
     version: z.string().uuid(),
+    // Contenuto conservato nella lapide, per il cestino. Oggetto vuoto = eliminazione definitiva.
+    trash: z.record(z.string(), z.unknown()).optional(),
   }),
 ]);
 
@@ -203,6 +222,7 @@ export type Label = Extract<LedgerRecord, { kind: "label" }>;
 export type Recurring = Extract<LedgerRecord, { kind: "recurring" }>;
 export type Rule = Extract<LedgerRecord, { kind: "rule" }>;
 export type ImportBatch = Extract<LedgerRecord, { kind: "import" }>;
+export type Template = Extract<LedgerRecord, { kind: "template" }>;
 export type Part = z.infer<typeof partSchema>;
 export type MovementOrigin = z.infer<typeof originSchema>;
 export type Schedule = Recurring["value"]["schedule"];
@@ -267,6 +287,7 @@ export function deriveLedger(records: LedgerRecord[]) {
   const recurring: Recurring[] = [];
   const rules: Rule[] = [];
   const imports: ImportBatch[] = [];
+  const templates: Template[] = [];
   const removed: (Account | Label)[] = [];
 
   for (const record of records) {
@@ -282,6 +303,7 @@ export function deriveLedger(records: LedgerRecord[]) {
       case "recurring": recurring.push(record); break;
       case "rule": rules.push(record); break;
       case "import": imports.push(record); break;
+      case "template": templates.push(record); break;
     }
   }
 
@@ -289,7 +311,8 @@ export function deriveLedger(records: LedgerRecord[]) {
   balances.sort((a, b) => b.value.month.localeCompare(a.value.month));
   recurring.sort((a, b) => a.value.template.title.localeCompare(b.value.template.title, "it"));
   imports.sort((a, b) => b.value.at.localeCompare(a.value.at) || b.id.localeCompare(a.id));
-  return { accounts: [...accounts.values()], labels: [...labels.values()], movements, balances, recurring, rules, imports, removed };
+  templates.sort((a, b) => a.value.order - b.value.order || a.value.name.localeCompare(b.value.name, "it"));
+  return { accounts: [...accounts.values()], labels: [...labels.values()], movements, balances, recurring, rules, imports, templates, removed };
 }
 
 export function activeAccounts(ledger: Ledger, keep?: string | null) {
@@ -387,8 +410,14 @@ export function todayInRome() {
 const euros = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", useGrouping: "always" });
 const percent = new Intl.NumberFormat("it-IT", { style: "percent", maximumFractionDigits: 1 });
 
+// Modalità discreta: gli importi diventano "••• €" finché non li mostri.
+let discreet = false;
+export function setDiscreet(hidden: boolean) { discreet = hidden; }
+export function isDiscreet() { return discreet; }
+
 export function money(value: number | null) {
-  return value === null ? "—" : euros.format(value / 100);
+  if (value === null) return "—";
+  return discreet ? "••• €" : euros.format(value / 100);
 }
 
 export function rate(value: number | null) {
@@ -522,4 +551,178 @@ export function periodMovements(ledger: Ledger, period: string) {
 export function lastRecordedMonth(ledger: Ledger) {
   return [ledger.movements[0]?.value.date.slice(0, 7), ledger.balances[0]?.value.month]
     .filter((month): month is string => !!month).sort().at(-1) ?? null;
+}
+
+// ---------------------------------------------------------------- Calcolatrice nel campo importo
+
+/**
+ * Importo scritto come numero o come espressione: "12,50+8", "45/3", "2x7,5", "(10+5)*2".
+ * Restituisce i centesimi arrotondati, oppure null se l'espressione non è valida.
+ * Niente eval: un piccolo interprete (le regole di sicurezza della pagina lo vietano comunque).
+ */
+export function evaluateAmount(raw: string): number | null {
+  const text = raw.trim().replace(/[\s\u00a0\u202f€]/g, "").replace(/[×xX]/g, "*").replace(/[÷:]/g, "/").replace(/−/g, "-");
+  if (!/[+*/()]|\d-/.test(text)) return parseMoney(raw);
+  const tokens = text.match(/\d[\d.,]*|[-+*/()]/g);
+  if (!tokens || tokens.join("") !== text) return null;
+  let index = 0;
+  // Valori in centesimi come numeri decimali: si arrotonda solo alla fine.
+  function number(): number | null {
+    const token = tokens![index];
+    if (token === "(") {
+      index++;
+      const value = sum();
+      if (tokens![index] !== ")") return null;
+      index++;
+      return value;
+    }
+    if (token === "-") { index++; const value = number(); return value === null ? null : -value; }
+    if (!token || !/^\d/.test(token)) return null;
+    index++;
+    return parseMoney(token);
+  }
+  function product(): number | null {
+    let value = number();
+    while (value !== null && (tokens![index] === "*" || tokens![index] === "/")) {
+      const operator = tokens![index++];
+      const right = number();
+      if (right === null) return null;
+      if (operator === "*") value = value * right / 100;
+      else { if (right === 0) return null; value = value / right * 100; }
+    }
+    return value;
+  }
+  function sum(): number | null {
+    let value = product();
+    while (value !== null && (tokens![index] === "+" || tokens![index] === "-")) {
+      const operator = tokens![index++];
+      const right = product();
+      if (right === null) return null;
+      value = operator === "+" ? value + right : value - right;
+    }
+    return value;
+  }
+  const result = sum();
+  if (result === null || index !== tokens.length || !Number.isFinite(result)) return null;
+  const rounded = Math.round(result);
+  return Math.abs(rounded) <= MAX_CENTS ? rounded : null;
+}
+
+/** true se il testo è un'espressione (da mostrare con il risultato accanto). */
+export function isExpression(raw: string) {
+  return /\d\s*[-+*/×xX÷:]\s*[\d(]/.test(raw.trim());
+}
+
+// ---------------------------------------------------------------- Suggerimenti dal titolo
+
+export type TitleSuggestion = {
+  title: string;
+  count: number;
+  value: Movement["value"];
+  /** L'importo, se è stato sempre lo stesso. */
+  amount: number | null;
+};
+
+function normalTitle(title: string) {
+  return title.trim().toLocaleLowerCase("it").replace(/\s+/g, " ");
+}
+
+/** Movimenti passati con un titolo simile a quello che stai scrivendo, dal più usato. */
+export function titleSuggestions(ledger: Ledger, type: MovementType, text: string, limit = 6): TitleSuggestion[] {
+  const query = normalTitle(text);
+  if (query.length < 2) return [];
+  const groups = new Map<string, TitleSuggestion & { amounts: Set<number>; starts: boolean }>();
+  for (const movement of ledger.movements) {
+    const { value } = movement;
+    if (value.type !== type) continue;
+    const key = normalTitle(value.title);
+    if (!key.includes(query) || key === query) continue;
+    const group = groups.get(key);
+    if (group) { group.count++; group.amounts.add(value.amount); continue; }
+    // ledger.movements è già dal più recente: il primo trovato è il modello.
+    groups.set(key, { title: value.title, count: 1, value, amount: null, amounts: new Set([value.amount]), starts: key.startsWith(query) });
+  }
+  return [...groups.values()]
+    .sort((a, b) => Number(b.starts) - Number(a.starts) || b.count - a.count)
+    .slice(0, limit)
+    .map(({ amounts, starts: _starts, ...item }) => ({ ...item, amount: amounts.size === 1 ? [...amounts][0] : null }));
+}
+
+// ---------------------------------------------------------------- Riconciliazione
+
+/**
+ * Saldo che il conto dovrebbe avere a fine `month` secondo i movimenti, partendo
+ * dal saldo registrato più recente prima di quel mese. null se non c'è un punto di partenza.
+ */
+export function expectedBalance(ledger: Ledger, accountId: string, month: string) {
+  const balances = ledger.balances.filter(({ value }) => value.accountId !== accountId || value.month < month);
+  const entry = accountBalances({ ...ledger, balances }, month).find(({ account }) => account.id === accountId);
+  if (!entry?.snapshot) return null;
+  return { amount: entry.amount ?? 0, from: entry.snapshot.value.month };
+}
+
+export type Gap = { account: Account; month: string; recorded: number; expected: number; from: string };
+
+/** Scarti tra saldi registrati e saldi attesi, dal mese più recente. */
+export function balanceGaps(ledger: Ledger, months = 12): Gap[] {
+  const gaps: Gap[] = [];
+  const recent = new Set(ledger.balances.map(({ value }) => value.month).sort().reverse().slice(0, 400));
+  for (const balance of ledger.balances) {
+    const account = ledger.accounts.find((item) => item.id === balance.value.accountId);
+    if (!account || account.value.type === "investment" || !recent.has(balance.value.month)) continue;
+    const expected = expectedBalance(ledger, account.id, balance.value.month);
+    if (!expected || expected.amount === balance.value.amount) continue;
+    gaps.push({ account, month: balance.value.month, recorded: balance.value.amount, expected: expected.amount, from: expected.from });
+  }
+  const latest = [...new Set(gaps.map((gap) => gap.month))].sort().reverse().slice(0, months);
+  return gaps.filter((gap) => latest.includes(gap.month)).sort((a, b) => b.month.localeCompare(a.month) || a.account.value.name.localeCompare(b.account.value.name, "it"));
+}
+
+/** Ultimo giorno del mese "AAAA-MM". */
+export function monthEnd(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  return `${month}-${String(new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()).padStart(2, "0")}`;
+}
+
+// ---------------------------------------------------------------- Preferiti
+
+/** Il movimento che nasce da un preferito (`amount` serve se il preferito non ha un importo fisso). */
+export function templateMovement(template: Template["value"], date: string, amount = template.amount ?? 0): Movement["value"] {
+  const common = { date, title: template.title, amount, notes: "", accountId: template.accountId, ...(template.tags?.length ? { tags: template.tags } : {}) };
+  if (template.type === "transfer") return { ...common, type: "transfer", accountId: template.accountId ?? "", toAccountId: template.toAccountId ?? "" };
+  if (template.type === "income") return { ...common, type: "income", labelId: template.labelId ?? "" };
+  return { ...common, type: "expense", labelId: template.labelId ?? "", subcategory: template.subcategory, method: template.method };
+}
+
+/** Il preferito che nasce da un movimento. */
+export function templateFrom(value: Movement["value"], name: string, fixedAmount: boolean, order: number): Template["value"] | null {
+  if (value.type === "repayment" || (value.type === "expense" && value.parts)) return null;
+  return {
+    name: name.trim().slice(0, 60) || value.title.slice(0, 60),
+    type: value.type,
+    title: value.title,
+    amount: fixedAmount ? value.amount : null,
+    labelId: value.type === "transfer" ? null : value.labelId,
+    subcategory: value.type === "expense" ? value.subcategory : "",
+    accountId: value.accountId,
+    toAccountId: value.type === "transfer" ? value.toAccountId : null,
+    method: value.type === "expense" ? value.method : "",
+    ...(value.tags?.length ? { tags: value.tags } : {}),
+    order,
+  };
+}
+
+/**
+ * Movimento che chiude lo scarto di un saldo: spesa se mancano soldi, entrata se ce ne sono di più.
+ * È datato all'ultimo giorno del mese, quindi non sposta il saldo registrato ma solo il calcolo atteso.
+ */
+export function adjustmentMovement(ledger: Ledger, accountId: string, month: string, gap: number): Movement["value"] {
+  const missing = gap < 0;
+  const wanted = missing ? "other-expenses" : "other-income";
+  const labels = activeLabels(ledger, missing ? "expense" : "income");
+  const labelId = labels.find((label) => label.id === wanted)?.id ?? labels[0]?.id ?? wanted;
+  const common = { date: monthEnd(month), amount: Math.abs(gap), accountId, notes: `Rettifica del saldo di ${monthLabel(month)}` };
+  return missing
+    ? { ...common, type: "expense", title: "Spese non registrate", labelId, subcategory: "", method: "" }
+    : { ...common, type: "income", title: "Entrate non registrate", labelId };
 }

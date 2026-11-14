@@ -8,10 +8,12 @@ import {
   ACCOUNT_TYPES, ENTRY_TYPES, MONTHS, accountBalances, activeAccounts, lastRecordedMonth, mix, money, monthLabel,
   monthName, netWorth, periodMovements, rate, shortDate, subcategoryList, subcategoryUsage, totals, yearlyFlow, yearMonths,
   allTags, expenseParts, hasTag,
-  type Account, type ImportBatch, type Label, type Ledger, type Movement, type MovementType, type Mutation, type Rule,
+  isDiscreet,
+  type Account, type Label, type Ledger, type Movement, type MovementType, type Mutation, type Template,
 } from "../lib/ledger";
+import type { TrashItem } from "../lib/ledger-sync";
 import { TYPE_ICONS } from "./ledger-forms";
-import { ImportsPanel, RulesPanel, TagsPanel } from "./settings-extra";
+import { FavoritesPanel, PersonalPanel, TagsPanel, TrashPanel } from "./settings-extra";
 import { TagChips } from "./tags";
 import { IDLE_OPTIONS } from "../lib/config";
 import { idleLabel } from "../lib/session";
@@ -65,6 +67,7 @@ function AxisGrid({ ticks, format }: { ticks: number[]; format: (value: number) 
 }
 
 export function axisMoney(cents: number) {
+  if (isDiscreet()) return "•••";
   const value = cents / 100;
   if (Math.abs(value) >= 1000) {
     return new Intl.NumberFormat("it-IT", { maximumFractionDigits: 1 }).format(value / 1000) + "k €";
@@ -633,31 +636,34 @@ function DevicePanel() {
   </section>;
 }
 
-export function Settings({ ledger, onLabel, onExport, onBalancesExport, onBackup, onImport, onDemo, session, onRule, onUndoImport, onCommit, busy }: {
+export function Settings({ ledger, onLabel, onExport, onBalancesExport, onBackup, onRestore, onDemo, session, onCommit, busy, onTemplate, trash, demo, onRestoreTrash, onPurgeTrash }: {
   ledger: Ledger; onLabel: (type: "expense" | "income", label?: Label) => void;
-  onExport: () => void; onBalancesExport: () => void; onBackup: () => void; onImport: () => void; onDemo: () => void; session: SessionInfo;
-  onRule: (rule?: Rule) => void; onUndoImport: (batch: ImportBatch) => void; onCommit: (actions: Mutation[], message: string) => void; busy: boolean;
+  onExport: () => void; onBalancesExport: () => void; onBackup: () => void; onRestore: () => void; onDemo: () => void; session: SessionInfo;
+  onCommit: (actions: Mutation[], message: string) => void; busy: boolean;
+  onTemplate: (template?: Template) => void; trash: TrashItem[]; demo: boolean;
+  onRestoreTrash: (items: TrashItem[]) => void; onPurgeTrash: (items: TrashItem[]) => void;
 }) {
   return <>
     <div className="split settings-grid">
       <CategoryTree ledger={ledger} type="expense" onLabel={onLabel} />
       <CategoryTree ledger={ledger} type="income" onLabel={onLabel} />
     </div>
+    <FavoritesPanel ledger={ledger} busy={busy} onEdit={onTemplate} onCommit={onCommit} />
+    <PersonalPanel />
     <SecurityPanel session={session} />
     <DevicePanel />
     <section className="panel export-panel">
-      <PanelTitle title="I tuoi dati" subtitle="Esporta in CSV, scarica un backup completo o importa da un file." />
+      <PanelTitle title="I tuoi dati" subtitle="Esporta in CSV, scarica un backup completo o ripristinalo." />
       <div className="export-actions">
         <button type="button" className="button secondary" onClick={onExport} disabled={!ledger.movements.length}><ArrowDownToLine size={17} /> Esporta movimenti</button>
         <button type="button" className="button secondary" onClick={onBalancesExport} disabled={!ledger.balances.length}><ArrowDownToLine size={17} /> Esporta saldi</button>
         <button type="button" className="button secondary" onClick={onBackup}><DatabaseBackup size={17} /> Backup completo</button>
-        <button type="button" className="button secondary" onClick={onImport}><FileUp size={17} /> Importa</button>
+        <button type="button" className="button secondary" onClick={onRestore}><FileUp size={17} /> Ripristina backup</button>
         <button type="button" className="button secondary" onClick={onDemo}>Dati di esempio</button>
       </div>
-      <p className="panel-note"><CircleHelp size={16} /> Il backup completo (.json) contiene anche conti, categorie, sottocategorie, ricorrenti e regole: è il file giusto per spostare tutto su un altro account.</p>
+      <p className="panel-note"><CircleHelp size={16} /> Il backup completo (.json) contiene anche conti, categorie, sottocategorie, ricorrenti e preferiti: è il file giusto per spostare tutto su un altro account. I CSV servono per i fogli di calcolo.</p>
     </section>
-    <ImportsPanel ledger={ledger} onUndo={onUndoImport} />
-    <RulesPanel ledger={ledger} onRule={onRule} />
+    <TrashPanel ledger={ledger} trash={trash} busy={busy} demo={demo} onRestore={onRestoreTrash} onPurge={onPurgeTrash} />
     <TagsPanel ledger={ledger} onCommit={onCommit} busy={busy} />
   </>;
 }

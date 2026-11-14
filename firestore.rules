@@ -14,14 +14,14 @@ service cloud.firestore {
     // tipi corretti, ID del documento coerente con il contenuto.
     // updatedAt deve essere l'ora del server: l'app la usa per leggere
     // solo i documenti cambiati. Le voci eliminate restano come "lapidi"
-    // (deleted: true, value vuoto).
+    // (deleted: true): value conserva il contenuto per il cestino, oppure è vuoto.
     function isValidEntry(entryId) {
       let data = request.resource.data;
       return data.keys().hasOnly(['kind', 'id', 'version', 'value', 'updatedAt', 'deleted'])
         && data.keys().hasAll(['kind', 'id', 'version', 'value', 'updatedAt'])
         && data.updatedAt == request.time
-        && (!('deleted' in data) || (data.deleted == true && data.value.size() == 0))
-        && data.kind in ['movement', 'balance', 'account', 'label', 'recurring', 'rule', 'import']
+        && (!('deleted' in data) || data.deleted == true)
+        && data.kind in ['movement', 'balance', 'account', 'label', 'recurring', 'rule', 'import', 'template']
         && data.id is string
         && data.id.size() > 0
         && data.id.size() <= 73

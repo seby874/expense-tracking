@@ -20,6 +20,9 @@ export type RawDoc = { id: string; data: Record<string, unknown> };
 
 type Entry = { record: LedgerRecord | null };
 
+/** Voce eliminata che conserva il contenuto: si può ripristinare dal cestino. */
+export type TrashItem = { record: LedgerRecord; deletedAt: number | null };
+
 function isStamp(value: unknown): value is Stamp {
   return typeof value === "object" && value !== null
     && typeof (value as Stamp).seconds === "number"
@@ -32,6 +35,7 @@ export function compareStamps(a: Stamp, b: Stamp) {
 
 export class LedgerMirror<T extends Stamp = Stamp> {
   private entries = new Map<string, Entry>();
+  private trash = new Map<string, TrashItem>();
   /** Documenti senza `updatedAt`, salvati da versioni precedenti dell'app. */
   readonly legacy = new Set<string>();
   cursor: T | null = null;
@@ -42,6 +46,7 @@ export class LedgerMirror<T extends Stamp = Stamp> {
 
   reset() {
     this.entries.clear();
+    this.trash.clear();
     this.legacy.clear();
     this.cursor = null;
   }
@@ -58,13 +63,21 @@ export class LedgerMirror<T extends Stamp = Stamp> {
 
       if (data.deleted === true) {
         this.entries.set(id, { record: null });
+        const kept = recordSchema.safeParse({ kind: data.kind, id: data.id, version: data.version, value: data.value });
+        if (kept.success) this.trash.set(id, { record: kept.data, deletedAt: isStamp(updatedAt) ? updatedAt.seconds * 1000 : null });
+        else this.trash.delete(id);
         continue;
       }
+      this.trash.delete(id);
       // Un documento malformato non deve bloccare l'intero archivio.
       const parsed = recordSchema.safeParse(data);
       if (!parsed.success) console.warn("Voce ignorata perché non valida:", id);
       this.entries.set(id, { record: parsed.success ? parsed.data : null });
     }
+  }
+
+  trashed(): TrashItem[] {
+    return [...this.trash.values()].sort((a, b) => (b.deletedAt ?? Infinity) - (a.deletedAt ?? Infinity));
   }
 
   records(): LedgerRecord[] {

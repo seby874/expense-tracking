@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { ArrowDownLeft, ArrowUpRight, Check, SlidersHorizontal } from "lucide-react";
+import { ArrowDownLeft, ArrowUpRight, Check, SlidersHorizontal, Star } from "lucide-react";
 import {
-  activeLabels, allTags, money, newId, parseMoney, subcategoryList,
-  type Ledger, type Movement, type Mutation,
+  activeLabels, allTags, evaluateAmount, money, newId, subcategoryList, templateMovement, titleSuggestions,
+  type Ledger, type Movement, type Mutation, type Template, type TitleSuggestion,
 } from "../lib/ledger";
-import { FormError } from "./ledger-forms";
+import { FormError, amountInput } from "./ledger-forms";
 import { TagInput } from "./tags";
+import { AmountPreview, TitleField } from "./inputs";
 
 type Choice = { labelId: string; subcategory: string };
 
@@ -74,7 +75,40 @@ export function QuickEntry({ ledger, kind, today, busy, error, onSave, onMore }:
     ...(type === "expense" && showAll ? subcategoryList(ledger, label.id).map((subcategory) => ({ labelId: label.id, subcategory })) : []),
   ]);
   const shown = showAll ? all : [...frequent, ...all.filter((item) => !frequent.some((other) => choiceKey(other) === choiceKey(item)))].slice(0, frequent.length ? 10 : 12);
-  const amount = parseMoney(amountText);
+  const amount = evaluateAmount(amountText);
+  const suggestions = titleSuggestions(ledger, type, title);
+
+  /** Un movimento simile: categoria, conto e tag come l'ultima volta (solo dove non hai già scelto). */
+  function pickSuggestion(item: TitleSuggestion) {
+    const past = item.value;
+    setTitle(item.title);
+    if ((past.type === "expense" || past.type === "income") && !choice && labels.some((label) => label.id === past.labelId)) {
+      setChoice({ labelId: past.labelId, subcategory: past.type === "expense" && !past.parts ? past.subcategory : "" });
+    }
+    if (past.accountId && accounts.some((account) => account.id === past.accountId)) setAccountId(past.accountId);
+    if (!tags.length && past.tags?.length) setTags(past.tags);
+    if (!amountText.trim() && item.amount !== null) setAmountText(amountInput(item.amount));
+    setValidation("");
+  }
+
+  /** Preferito: con l'importo fisso si registra subito, altrimenti compila tutto e aspetta l'importo. */
+  async function applyTemplate(item: Template) {
+    const value = item.value;
+    if (value.type === "transfer") { onMore(templateMovement(value, date)); return; }
+    if (value.amount) {
+      const movement = templateMovement(value, date);
+      await onSave([{ op: "save", record: { kind: "movement", id: newId(), version: null, value: movement } }],
+        `«${value.name}» registrato: ${money(value.amount)}.`, false);
+      return;
+    }
+    if (value.type !== type) switchType(value.type);
+    setChoice(value.labelId ? { labelId: value.labelId, subcategory: value.subcategory } : null);
+    setTitle(value.title);
+    if (value.accountId) setAccountId(value.accountId);
+    setTags(value.tags ?? []);
+    setValidation("");
+    amountRef.current?.focus();
+  }
 
   function switchType(next: "expense" | "income") {
     if (next === type) return;
@@ -124,15 +158,22 @@ export function QuickEntry({ ledger, kind, today, busy, error, onSave, onMore }:
   }
 
   return <form className="editor quick-entry" onSubmit={submit}>
+    {ledger.templates.length > 0 && <div className="favorite-bar" role="group" aria-label="Preferiti">
+      {ledger.templates.map((item) => <button type="button" key={item.id} disabled={busy} onClick={() => void applyTemplate(item)}
+        title={item.value.amount ? `Registra subito ${money(item.value.amount)}` : "Scegli l’importo"}>
+        <Star size={13} /><span>{item.value.name}</span>{item.value.amount ? <small>{money(item.value.amount)}</small> : <small>importo…</small>}
+      </button>)}
+    </div>}
     <div className="segmented quick-type" role="group" aria-label="Tipo">
       <button type="button" aria-pressed={type === "expense"} onClick={() => switchType("expense")}><ArrowUpRight size={16} /> Spesa</button>
       <button type="button" aria-pressed={type === "income"} onClick={() => switchType("income")}><ArrowDownLeft size={16} /> Entrata</button>
     </div>
     <label className="quick-amount"><span className="sr-only">Importo in euro</span>
-      <input ref={amountRef} inputMode="decimal" enterKeyHint="done" placeholder="0,00" value={amountText} maxLength={14}
-        onChange={(event) => setAmountText(event.target.value.replace(/[^\d.,]/g, ""))} aria-label="Importo in euro" />
+      <input ref={amountRef} inputMode="text" enterKeyHint="done" placeholder="0,00" value={amountText} maxLength={40}
+        onChange={(event) => setAmountText(event.target.value.replace(/[^\d.,+\-*/()x×÷: ]/g, ""))} aria-label="Importo in euro (anche come operazione)" />
       <span aria-hidden="true">€</span>
     </label>
+    <AmountPreview text={amountText} />
     <div className="quick-choices" role="group" aria-label={type === "expense" ? "Categoria" : "Fonte"}>
       {shown.map((item) => {
         const selected = !!choice && choiceKey(choice) === choiceKey(item);
@@ -154,9 +195,8 @@ export function QuickEntry({ ledger, kind, today, busy, error, onSave, onMore }:
         </select></label>
       <label>Data<input type="date" min="1900-01-01" max="2100-12-31" value={date} onChange={(event) => setDate(event.target.value)} /></label>
     </div>
-    <label>Descrizione <span className="optional">facoltativa</span>
-      <input value={title} maxLength={160} onChange={(event) => setTitle(event.target.value)}
-        placeholder={choice ? choice.subcategory || labelName(choice.labelId) : "Es. pranzo, benzina…"} /></label>
+    <TitleField label={<>Descrizione <span className="optional">facoltativa</span></>} ledger={ledger} value={title} onChange={setTitle}
+      suggestions={suggestions} onPick={pickSuggestion} placeholder={choice ? choice.subcategory || labelName(choice.labelId) : "Es. pranzo, benzina…"} />
     <div className="field-block"><span className="field-label">Tag <span className="optional">facoltativi</span></span>
       <TagInput value={tags} onChange={setTags} suggestions={allTags(ledger).map((item) => item.name)} compact /></div>
     {saved > 0 && <p className="field-note" role="status">{saved === 1 ? "1 movimento salvato" : `${saved} movimenti salvati`} in questa sessione.</p>}

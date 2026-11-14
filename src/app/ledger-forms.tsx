@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Calculator, HandCoins, Plus, Repeat, Split, Trash2, X } from "lucide-react";
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Calculator, Copy, HandCoins, Plus, Repeat, Scale, Split, Star, Trash2, X } from "lucide-react";
 import {
-  ENTRY_TYPES, INTEREST_LABEL, METHOD_LABELS, activeLabels, allTags, balanceId, money, parseMoney, sameName, subcategoryList,
-  type Account, type Balance, type Ledger, type LedgerRecord, type Movement, type MovementType, type Part, type Schedule,
+  ENTRY_TYPES, INTEREST_LABEL, METHOD_LABELS, activeLabels, adjustmentMovement, allTags, balanceId, evaluateAmount, expectedBalance, money, monthEnd, monthLabel, parseMoney, sameName, subcategoryList, titleSuggestions,
+  type Account, type Balance, type Ledger, type LedgerRecord, type Movement, type MovementType, type Part, type Schedule, type TitleSuggestion,
 } from "../lib/ledger";
 import { debtDetails, linkedRecurring, splitRepayment } from "../lib/debts";
 import { TagInput } from "./tags";
+import { AmountPreview, TitleField } from "./inputs";
 
 type PartDraft = { key: number; target: string; subcategory: string; amount: string };
 let partKey = 0;
@@ -46,7 +47,7 @@ export function field(data: FormData, key: string) {
   return String(data.get(key) ?? "").trim();
 }
 
-function amountInput(amount: number | undefined) {
+export function amountInput(amount: number | undefined) {
   return amount === undefined ? "" : (amount / 100).toFixed(2).replace(".", ",");
 }
 
@@ -59,6 +60,8 @@ export type MovementResult = {
   newSubcategory: string | null;
   schedule: Pick<Schedule, "frequency" | "every" | "end"> | null;
   paused: boolean;
+  /** Da salvare (anche) come preferito: nome e se l'importo è fisso. */
+  favorite: { name: string; fixedAmount: boolean } | null;
 };
 
 const NEW_SUBCATEGORY = "__new__";
@@ -68,9 +71,12 @@ const FREQUENCIES = { weekly: "Settimane", monthly: "Mesi", yearly: "Anni" } as 
  * Modulo unico per: movimento normale, registrazione di una scadenza ricorrente
  * ("occurrence") e modifica di un movimento ricorrente ("recurring").
  */
-export function MovementForm({ busy, error, ledger, prefill, date, mode, schedule, paused = false, canRemove, onSubmit, onRemove, editingId, fresh = false }: {
+export function MovementForm({ busy, error, ledger, prefill, date, mode, schedule, paused = false, canRemove, onSubmit, onRemove, editingId, fresh = false, onDuplicate, templateName }: {
   busy: boolean; error: string; ledger: Ledger; prefill?: Movement["value"]; date: string;
-  mode: "movement" | "occurrence" | "recurring"; schedule?: Schedule; paused?: boolean;
+  /** "template": modifica di un preferito (niente data, importo facoltativo). */
+  mode: "movement" | "occurrence" | "recurring" | "template"; schedule?: Schedule; paused?: boolean;
+  /** Apre un movimento nuovo con gli stessi dati (solo in modifica). */ onDuplicate?: () => void;
+  /** Nome del preferito in modifica. */ templateName?: string;
   canRemove: boolean; onSubmit: (result: MovementResult) => void; onRemove?: () => void;
   /** Id del movimento in modifica (escluso dal calcolo del residuo). */ editingId?: string;
   /** `prefill` è solo una proposta per un movimento nuovo (es. "Registra rata"). */ fresh?: boolean;
@@ -78,6 +84,11 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
   const value = prefill;
   const [type, setType] = useState<MovementType>(value?.type ?? "expense");
   const [amountText, setAmountText] = useState(value?.amount ? amountInput(value.amount) : "");
+  const [titleText, setTitleText] = useState(value?.title ?? "");
+  const [favorite, setFavorite] = useState(false);
+  const [favoriteName, setFavoriteName] = useState(templateName ?? "");
+  const [rememberAmount, setRememberAmount] = useState(true);
+  const template = mode === "template";
   const [dateText, setDateText] = useState(value?.date ?? date);
   const [debtId, setDebtId] = useState(value?.type === "repayment" ? value.debtId : "");
   // Una rata già salvata con una divisione diversa da quella calcolata resta "a mano".
@@ -89,9 +100,11 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
   const [interestText, setInterestText] = useState(value?.type === "repayment" ? amountInput(value.interest) : "");
   const titleRef = useRef<HTMLInputElement>(null);
   const accountRef = useRef<HTMLSelectElement>(null);
+  const toAccountRef = useRef<HTMLSelectElement>(null);
+  const methodRef = useRef<HTMLInputElement>(null);
   const debts = ledger.accounts.filter((account) => account.value.type === "debt" && (!account.value.archived || account.id === debtId));
   const debt = debts.find((account) => account.id === debtId);
-  const amountValue = parseMoney(amountText);
+  const amountValue = evaluateAmount(amountText);
   const autoSplit = type === "repayment" && debt && amountValue !== null && amountValue > 0 && /^\d{4}-\d{2}-\d{2}$/.test(dateText)
     ? splitRepayment(ledger, debt, dateText, amountValue, editingId) : null;
   const [labelId, setLabelId] = useState(value && value.type !== "transfer" ? value.labelId : "");
@@ -118,19 +131,45 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
     const chosen = ledger.accounts.find((account) => account.id === id);
     const details = debtDetails(chosen);
     if (!chosen) return;
-    if (titleRef.current && !titleRef.current.value.trim()) titleRef.current.value = `${details?.kind === "flexible" ? "Rimborso" : "Rata"} ${chosen.value.name}`.slice(0, 160);
+    if (!titleText.trim()) setTitleText(`${details?.kind === "flexible" ? "Rimborso" : "Rata"} ${chosen.value.name}`.slice(0, 160));
     if (details?.kind === "loan" && !amountText.trim()) setAmountText(amountInput(details.installment));
     if (details?.accountId && accountRef.current && !accountRef.current.value) accountRef.current.value = details.accountId;
   }
+  const suggestions = mode === "recurring" ? [] : titleSuggestions(ledger, type, titleText);
+
+  /** Un movimento simile scelto dai suggerimenti compila solo i campi ancora vuoti. */
+  function pickSuggestion(item: TitleSuggestion) {
+    const past = item.value;
+    setTitleText(item.title);
+    if (past.type !== "transfer" && past.type !== "repayment" && !labelId && choices.some((label) => label.id === past.labelId)) {
+      setLabelId(past.labelId);
+      if (past.type === "expense" && !subcategory) setSubcategory(past.subcategory);
+    }
+    if (past.type === "expense" && labelId === past.labelId && !subcategory) setSubcategory(past.subcategory);
+    if (past.type === "repayment" && !debtId) chooseDebt(past.debtId);
+    const known = (id: string | null) => !!id && accounts.some((account) => account.id === id);
+    if (accountRef.current && !accountRef.current.value && known(past.accountId)) accountRef.current.value = past.accountId!;
+    if (past.type === "transfer" && toAccountRef.current && !toAccountRef.current.value && known(past.toAccountId)) toAccountRef.current.value = past.toAccountId;
+    if (past.type === "expense" && methodRef.current && !methodRef.current.value && past.method) methodRef.current.value = past.method;
+    if (!tags.length && past.tags?.length) setTags(past.tags);
+    if (!amountText.trim() && item.amount !== null) setAmountText(amountInput(item.amount));
+  }
+
   const list = type === "expense" && labelId ? subcategoryList(ledger, labelId) : [];
   if (subcategory && subcategory !== NEW_SUBCATEGORY && !list.some((item) => sameName(item, subcategory))) list.push(subcategory);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    const amount = parseMoney(field(data, "amount"));
+    const typedAmount = field(data, "amount");
+    // In un preferito l'importo è facoltativo: senza, lo scegli ogni volta che lo usi.
+    const amount = template && !typedAmount ? 1 : evaluateAmount(typedAmount);
     if (amount === null || amount <= 0) {
-      setValidation("Inserisci un importo maggiore di zero, con al massimo due decimali.");
+      setValidation("Inserisci un importo maggiore di zero (anche come operazione, es. 12,50+8).");
+      return;
+    }
+    if (template && !field(data, "template-name")) {
+      setValidation("Dai un nome al preferito.");
       return;
     }
     const common = {
@@ -223,14 +262,18 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
       }
       plan = { frequency: field(data, "frequency") as Schedule["frequency"], every, end };
     }
+    const canFavorite = type !== "repayment" && !(type === "expense" && parts);
+    const favoriteChoice = template ? { name: field(data, "template-name"), fixedAmount: !!typedAmount }
+      : favorite && canFavorite ? { name: favoriteName.trim() || common.title, fixedAmount: rememberAmount } : null;
     setValidation("");
-    onSubmit({ movement, newSubcategory: added, schedule: plan, paused: data.get("paused") === "on" });
+    onSubmit({ movement, newSubcategory: added, schedule: plan, paused: data.get("paused") === "on", favorite: favoriteChoice });
   }
 
   return (
     <form className="editor" onSubmit={submit}>
+      {template && <label>Nome del preferito<input name="template-name" defaultValue={templateName ?? ""} maxLength={60} placeholder="Es. Benzina, Caffè, Ricarica Revolut" required /></label>}
       <div className="segmented type-switch" aria-label="Tipo di movimento">
-        {(["expense", "income", "transfer", "repayment"] as const).map((entryType) => {
+        {(template ? ["expense", "income", "transfer"] as const : ["expense", "income", "transfer", "repayment"] as const).map((entryType) => {
           const Icon = TYPE_ICONS[entryType];
           return <button key={entryType} type="button" aria-pressed={type === entryType}
             onClick={() => {
@@ -248,14 +291,17 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
           {debts.map((item) => <option key={item.id} value={item.id}>{item.value.name}</option>)}
         </select>
       </label>}
-      <label>Descrizione<input ref={titleRef} name="title" placeholder={type === "transfer" ? "Es. Giroconto" : type === "repayment" ? "Es. Rata finanziamento" : "Es. Spesa settimanale"}
-        defaultValue={value?.title ?? ""} maxLength={160} required /></label>
-      <div className="form-grid">
-        <label>{type === "repayment" ? "Importo pagato in euro" : "Importo in euro"}<input name="amount" inputMode="decimal" placeholder="0,00"
-          value={amountText} onChange={(event) => setAmountText(event.target.value)} maxLength={22} required /></label>
-        <label>{mode === "recurring" ? (schedule && schedule.done > 0 ? "Prossima scadenza" : "Prima scadenza") : "Data"}
+      <TitleField label="Descrizione" ledger={ledger} name="title" inputRef={titleRef} value={titleText} onChange={setTitleText}
+        suggestions={suggestions} onPick={pickSuggestion} required
+        placeholder={type === "transfer" ? "Es. Giroconto" : type === "repayment" ? "Es. Rata finanziamento" : "Es. Spesa settimanale"} />
+      <div className={template ? undefined : "form-grid"}>
+        <label>{type === "repayment" ? "Importo pagato in euro" : "Importo in euro"} {template && <span className="optional">facoltativo: senza, lo scegli ogni volta</span>}
+          <input name="amount" inputMode="text" placeholder="0,00 o 12,50+8" title="Puoi scrivere anche un’operazione: + − × ÷"
+          value={amountText} onChange={(event) => setAmountText(event.target.value)} maxLength={40} required={!template} />
+          <AmountPreview text={amountText} /></label>
+        {template ? <input type="hidden" name="date" value={dateText} /> : <label>{mode === "recurring" ? (schedule && schedule.done > 0 ? "Prossima scadenza" : "Prima scadenza") : "Data"}
           <input name="date" type="date" min="1900-01-01" max="2100-12-31"
-          value={dateText} onChange={(event) => setDateText(event.target.value)} required /></label>
+          value={dateText} onChange={(event) => setDateText(event.target.value)} required /></label>}
       </div>
       {type === "repayment" && mode === "recurring" && <p className="field-note">La divisione tra capitale e interessi si calcola a ogni scadenza, sul debito residuo di quel momento.</p>}
       {type === "repayment" && mode !== "recurring" && debt && <div className="split-box" aria-live="polite">
@@ -309,7 +355,7 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
         })()}
         <p className="field-note">Le parti verso un credito non contano come spesa: aumentano quanto ti devono.</p>
       </fieldset>}
-      {type === "expense" && !parts && labelId && mode !== "recurring" && <button type="button" className="text-button split-open" onClick={() => setParts([
+      {type === "expense" && !parts && labelId && mode !== "recurring" && !template && <button type="button" className="text-button split-open" onClick={() => setParts([
         { key: partKey++, target: `label:${labelId}`, subcategory: subcategory === NEW_SUBCATEGORY ? "" : subcategory, amount: amountText },
         { key: partKey++, target: "", subcategory: "", amount: "" },
       ])}><Split size={14} /> Dividi la spesa tra più categorie o anticipata per altri</button>}
@@ -340,20 +386,20 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
           </select>
         </label>
         {type === "transfer" && <label>Al conto
-          <select name="to-account" defaultValue={value?.type === "transfer" ? value.toAccountId : ""} required>
+          <select ref={toAccountRef} name="to-account" defaultValue={value?.type === "transfer" ? value.toAccountId : ""} required>
             <option value="">Scegli un conto</option>
             {accounts.map((account) => <option value={account.id} key={account.id}>{account.value.name}</option>)}
           </select>
         </label>}
         {type === "expense" && <label>Metodo di pagamento <span className="optional">facoltativo</span>
-          <input name="method" list="payment-methods" placeholder="Scegli o scrivi" maxLength={60}
+          <input ref={methodRef} name="method" list="payment-methods" placeholder="Scegli o scrivi" maxLength={60}
             defaultValue={value?.type === "expense" ? value.method : ""} />
           <datalist id="payment-methods">{METHOD_LABELS.map((method) => <option value={method} key={method} />)}</datalist>
         </label>}
       </div>
-      <label>Note <span className="optional">facoltative</span>
+      {!template && <label>Note <span className="optional">facoltative</span>
         <textarea name="notes" rows={2} maxLength={1200} placeholder="Aggiungi un dettaglio" defaultValue={value?.notes ?? ""} />
-      </label>
+      </label>}
       <div className="field-block"><span className="field-label">Tag <span className="optional">facoltativi</span></span>
         <TagInput value={tags} onChange={setTags} suggestions={allTags(ledger).map((item) => item.name)} /></div>
       {mode === "movement" && (!value || fresh) && !(type === "repayment" && debt && linkedRecurring(ledger, debt.id)) && <label className="check-row">
@@ -381,46 +427,84 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
           <span><strong>In pausa</strong><small>Le scadenze non vengono proposte finché non la togli.</small></span>
         </label>}
       </fieldset>}
+      {mode === "movement" && type !== "repayment" && !(type === "expense" && parts) && <label className="check-row">
+        <input type="checkbox" checked={favorite} onChange={(event) => setFavorite(event.target.checked)} />
+        <span><strong><Star size={14} /> Salva anche come preferito</strong><small>Lo ritrovi nell’inserimento veloce: un tocco e il movimento è registrato.</small></span>
+      </label>}
+      {favorite && mode === "movement" && <div className="form-grid favorite-fields">
+        <label>Nome del preferito<input value={favoriteName} onChange={(event) => setFavoriteName(event.target.value)} maxLength={60} placeholder={titleText || "Es. Caffè"} /></label>
+        <label className="check-row compact"><input type="checkbox" checked={rememberAmount} onChange={(event) => setRememberAmount(event.target.checked)} />
+          <span><strong>Ricorda l’importo</strong><small>Senza, lo scegli ogni volta.</small></span></label>
+      </div>}
       <FormError message={validation || error} />
       <div className="modal-actions">
         {canRemove && onRemove && <button type="button" className="button danger-quiet" disabled={busy}
           onClick={onRemove}><Trash2 size={16} /> Elimina</button>}
-        <Submit busy={busy}>{mode === "recurring" ? "Salva ricorrente" : mode === "occurrence" ? "Registra movimento" : "Salva movimento"}</Submit>
+        {onDuplicate && <button type="button" className="button secondary" disabled={busy} onClick={onDuplicate}><Copy size={16} /> Duplica</button>}
+        <Submit busy={busy}>{template ? "Salva preferito" : mode === "recurring" ? "Salva ricorrente" : mode === "occurrence" ? "Registra movimento" : "Salva movimento"}</Submit>
       </div>
     </form>
   );
 }
 
-export function BalanceForm({ busy, error, onSave, account, initialMonth, ledger, onRemove }: Omit<SaveProps, "id"> & {
-  account: Account; initialMonth: string; ledger: Ledger; onRemove: (record: Balance) => void;
+export function BalanceForm({ busy, error, onSave, account, initialMonth, ledger, onRemove }: {
+  busy: boolean; error: string; account: Account; initialMonth: string; ledger: Ledger; onRemove: (record: Balance) => void;
+  /** `adjustment`: rettifica facoltativa che chiude lo scarto con i movimenti. */
+  onSave: (record: LedgerRecord, adjustment: Movement["value"] | null) => void;
 }) {
   const [month, setMonth] = useState(initialMonth);
   const [validation, setValidation] = useState("");
   const id = balanceId(account.id, month);
   const snapshot = ledger.balances.find((balance) => balance.id === id);
+  const [amountText, setAmountText] = useState(amountInput(snapshot?.value.amount));
+  const [adjust, setAdjust] = useState(false);
   const debt = account.value.type === "debt";
   const investment = account.value.type === "investment";
+  const canAdjust = account.value.type === "cash" || account.value.type === "asset";
+  const expected = expectedBalance(ledger, account.id, month);
+  const recorded = evaluateAmount(amountText);
+  const gap = expected && recorded !== null ? recorded - expected.amount : null;
+
+  function changeMonth(next: string) {
+    setMonth(next);
+    setValidation("");
+    setAdjust(false);
+    setAmountText(amountInput(ledger.balances.find((balance) => balance.id === balanceId(account.id, next))?.value.amount));
+  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const amount = parseMoney(field(new FormData(event.currentTarget), "amount"));
+    const amount = evaluateAmount(amountText);
     if (amount === null || (debt && amount < 0)) {
       setValidation(debt ? "Inserisci un debito residuo positivo o pari a zero." : "Inserisci un saldo valido, con al massimo due decimali.");
       return;
     }
     setValidation("");
-    onSave({ kind: "balance", id, version: snapshot?.version ?? null, value: { accountId: account.id, month, amount } });
+    onSave({ kind: "balance", id, version: snapshot?.version ?? null, value: { accountId: account.id, month, amount } },
+      adjust && canAdjust && gap ? adjustmentMovement(ledger, account.id, month, gap) : null);
   }
 
   return <form className="editor" onSubmit={submit}>
     <label>Mese di riferimento
-      <input type="month" value={month} min="1900-01" max="2100-12" required
-        onChange={(event) => { setMonth(event.target.value); setValidation(""); }} />
+      <input type="month" value={month} min="1900-01" max="2100-12" required onChange={(event) => changeMonth(event.target.value)} />
     </label>
     <label>{debt ? "Debito residuo a fine mese in euro" : investment ? "Valore a fine mese in euro" : "Saldo a fine mese in euro"}
-      <input key={month} name="amount" inputMode="decimal" placeholder="0,00" required maxLength={22}
-        defaultValue={amountInput(snapshot?.value.amount)} />
+      <input name="amount" inputMode="text" placeholder="0,00" required maxLength={40} value={amountText} onChange={(event) => setAmountText(event.target.value)} />
+      <AmountPreview text={amountText} />
     </label>
+    {expected && <div className={`reconcile-box${gap ? " has-gap" : ""}`} aria-live="polite">
+      <div className="split-head"><Scale size={15} /><strong>{investment ? "Rendimento" : "Riconciliazione"}</strong></div>
+      <p>
+        <span>{investment ? "Valore atteso con i soli versamenti" : debt ? "Residuo atteso dai movimenti" : "Saldo atteso dai movimenti"}: <b>{money(expected.amount)}</b></span>
+        <small>Dal saldo di {monthLabel(expected.from)} più i movimenti successivi fino a {monthLabel(month)}.</small>
+        {gap !== null && <span className="reconcile-gap">{gap === 0 ? "Tutto torna: nessuno scarto." : investment
+          ? <>{gap > 0 ? "Guadagno" : "Perdita"} di valore: <b>{money(Math.abs(gap))}</b></>
+          : <>Scarto: <b>{gap > 0 ? "+" : "−"}{money(Math.abs(gap))}</b> {debt ? "" : gap < 0 ? "(mancano soldi: spese non registrate?)" : "(ci sono più soldi: entrate non registrate?)"}</>}</span>}
+      </p>
+      {canAdjust && !!gap && <label className="check-row compact"><input type="checkbox" checked={adjust} onChange={(event) => setAdjust(event.target.checked)} />
+        <span><strong>Registra anche una rettifica di {money(Math.abs(gap))}</strong>
+          <small>{gap < 0 ? "Una spesa «Spese non registrate»" : "Un’entrata «Entrate non registrate»"} al {monthEnd(month).split("-").reverse().join("/")}: i conti tornano.</small></span></label>}
+    </div>}
     <p className="form-help">{debt
       ? "Usa la cifra dell’estratto conto o quella concordata. Comprende le rate di quel mese; le rate dei mesi successivi la riducono in automatico."
       : investment

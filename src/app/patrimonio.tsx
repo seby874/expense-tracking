@@ -1,11 +1,11 @@
 import { useId, type ReactNode } from "react";
 import {
   Archive, ArrowDownLeft, ArrowUpRight, CalendarClock, ChartNoAxesCombined, CircleHelp, HandCoins, Handshake, Landmark, PencilLine, Pencil, Plus, RefreshCw,
-  TrendingUp, Users, WalletCards,
+  Scale, TrendingUp, Users, WalletCards,
 } from "lucide-react";
 import {
-  ACCOUNT_TYPES, ASSET_CLASSES, accountBalances, lastRecordedMonth, money, monthLabel, monthName, netWorth, rate, shortDate, yearMonths,
-  type Account, type Ledger,
+  ACCOUNT_TYPES, ASSET_CLASSES, accountBalances, balanceGaps, lastRecordedMonth, money, monthLabel, monthName, netWorth, rate, shortDate, yearMonths,
+  type Account, type Gap, type Ledger,
 } from "../lib/ledger";
 import { debtStatus, type DebtStatus } from "../lib/debts";
 import { investmentHistory, investmentSummary } from "../lib/investments";
@@ -26,7 +26,29 @@ type Handlers = {
   onContribute: (investment: Account) => void;
   onCredit: (account?: Account) => void;
   onCreditMove: (credit: Account, direction: "lend" | "back") => void;
+  onAdjust: (gap: Gap) => void;
 };
+
+/** Mesi in cui il saldo registrato non coincide con quello calcolato dai movimenti. */
+function ReconcilePanel({ ledger, onAdjust }: { ledger: Ledger; onAdjust: (gap: Gap) => void }) {
+  const gaps = balanceGaps(ledger).filter((gap) => gap.account.value.type === "cash" || gap.account.value.type === "asset");
+  if (!ledger.balances.length) return null;
+  return <section className="panel reconcile-panel">
+    <PanelTitle title="Riconciliazione" subtitle="Saldi registrati che non tornano con i movimenti degli ultimi mesi." />
+    {gaps.length ? <ul className="rule-list">{gaps.map((gap) => {
+      const delta = gap.recorded - gap.expected;
+      return <li key={`${gap.account.id}@${gap.month}`}>
+        <div><strong>{gap.account.value.name} · {monthLabel(gap.month)}</strong>
+          <small>Registrato {money(gap.recorded)} · atteso {money(gap.expected)} (dal saldo di {monthLabel(gap.from)})</small></div>
+        <span className="archived-actions">
+          <b className={delta < 0 ? "amount-expense" : "amount-income"}>{delta > 0 ? "+" : "−"}{money(Math.abs(delta))}</b>
+          <button type="button" className="text-button" onClick={() => onAdjust(gap)}>Rettifica</button>
+        </span>
+      </li>;
+    })}</ul> : <p className="panel-note"><Scale size={16} /> Tutto torna: i saldi registrati coincidono con i movimenti.</p>}
+    <p className="panel-note"><CircleHelp size={16} /> Uno scarto negativo di solito è una spesa che hai dimenticato di registrare. «Rettifica» crea un movimento a fine mese che chiude la differenza.</p>
+  </section>;
+}
 
 export function Patrimonio({ ledger, year, month, monthChange, tab, onTab, ...handlers }: Handlers & {
   ledger: Ledger; year: number; month: string; monthChange: (month: string) => void;
@@ -63,7 +85,7 @@ export function Patrimonio({ ledger, year, month, monthChange, tab, onTab, ...ha
 
 // ------------------------------------------------------------------ Conti
 
-function AccountsTab({ ledger, year, month, monthChange, onAccount, onBalance }: Handlers & {
+function AccountsTab({ ledger, year, month, monthChange, onAccount, onBalance, onAdjust }: Handlers & {
   ledger: Ledger; year: number; month: string; monthChange: (month: string) => void;
 }) {
   const values = accountBalances(ledger, month).filter(({ account }) => account.value.type === "cash" || account.value.type === "asset");
@@ -98,6 +120,7 @@ function AccountsTab({ ledger, year, month, monthChange, onAccount, onBalance }:
       </details>}
       <p className="panel-note"><CircleHelp size={16} /> Il saldo registrato a fine mese comprende già i movimenti di quel mese. L’app applica quelli collegati dei mesi successivi.</p>
     </section>
+    <ReconcilePanel ledger={ledger} onAdjust={onAdjust} />
     <section className="panel history-panel">
       <PanelTitle title="Storico del patrimonio" subtitle={`Patrimonio netto da dicembre ${year - 1} a dicembre ${year}`} />
       {history.some(({ amount }) => amount !== null) ? <>

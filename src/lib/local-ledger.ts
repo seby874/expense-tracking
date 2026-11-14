@@ -16,7 +16,7 @@ import {
   type Timestamp,
 } from "firebase/firestore";
 import { auth, db, firestoreReady, offlineEnabled } from "./firebase";
-import { LedgerMirror, type RawDoc } from "./ledger-sync";
+import { LedgerMirror, type RawDoc, type TrashItem } from "./ledger-sync";
 import {
   newId,
   recordSchema,
@@ -71,10 +71,12 @@ function markFullSync(uid: string) {
   try { window.localStorage.setItem(fullSyncKey(uid), String(Date.now())); } catch {}
 }
 
-/** Documento che sostituisce una voce eliminata. */
-function tombstone(target: { kind: string; id: string }) {
-  return { kind: target.kind, id: target.id, version: newId(), value: {}, deleted: true, updatedAt: serverTimestamp() };
+/** Documento che sostituisce una voce eliminata: conserva il contenuto per il cestino (vuoto = eliminazione definitiva). */
+function tombstone(target: { kind: string; id: string }, value: Record<string, unknown> = {}) {
+  return { kind: target.kind, id: target.id, version: newId(), value, deleted: true, updatedAt: serverTimestamp() };
 }
+
+export type LedgerSnapshot = { records: LedgerRecord[]; trash: TrashItem[] };
 
 function stamped<T extends object>(record: T) {
   return { ...record, updatedAt: serverTimestamp() };
@@ -152,7 +154,7 @@ async function fullSync(uid: string, ref: CollectionReference, data: LedgerMirro
   markFullSync(uid);
 }
 
-export async function readLedger(): Promise<LedgerRecord[]> {
+export async function readLedger(): Promise<LedgerSnapshot> {
   await firestoreReady;
   const ref = ledgerCollection();
   const uid = auth.currentUser!.uid;
@@ -171,7 +173,7 @@ export async function readLedger(): Promise<LedgerRecord[]> {
     // Senza rete: la copia locale, comprese le modifiche ancora in coda.
     data.reset();
     data.apply(rawDocs(await getDocsFromCache(ref)));
-    return data.records();
+    return { records: data.records(), trash: data.trashed() };
   }
 
   try {
@@ -182,10 +184,10 @@ export async function readLedger(): Promise<LedgerRecord[]> {
     }
   } catch (error) {
     // Con l'uso offline, se il server non risponde si mostra la copia locale.
-    if (offlineEnabled && data.size) return data.records();
+    if (offlineEnabled && data.size) return { records: data.records(), trash: data.trashed() };
     throw error;
   }
-  return data.records();
+  return { records: data.records(), trash: data.trashed() };
 }
 
 /** Scrittura singola con controllo dei conflitti tra dispositivi (richiede la rete). */
@@ -197,7 +199,7 @@ export async function writeLedger(action: Mutation) {
   if (offlineEnabled && isOffline()) {
     // Offline il controllo dei conflitti non è possibile: vince l'ultima modifica.
     if (action.op === "delete") {
-      track(setDoc(ref, tombstone(target)));
+      track(setDoc(ref, tombstone(target, action.trash)));
       return null;
     }
     const saved = { ...action.record, version: newId() };
@@ -211,6 +213,12 @@ export async function writeLedger(action: Mutation) {
     // Una voce eliminata ("lapide") vale come inesistente.
     const current = stored && stored.deleted !== true ? recordSchema.parse(stored) : null;
 
+    // Eliminare ciò che è già nel cestino: si svuota la lapide, senza controllo di versione.
+    if (action.op === "delete" && stored && !current) {
+      transaction.set(ref, tombstone(target, action.trash ?? {}));
+      return null;
+    }
+
     if ((current?.version ?? null) !== target.version) {
       throw new Error(
         "La voce è cambiata su un altro dispositivo. Chiudi la modifica e ricarica."
@@ -220,7 +228,7 @@ export async function writeLedger(action: Mutation) {
     if (action.op === "delete") {
       // Lapide invece della cancellazione: gli altri dispositivi lo scoprono
       // leggendo solo ciò che è cambiato.
-      transaction.set(ref, tombstone(target));
+      transaction.set(ref, tombstone(target, action.trash ?? (current ? current.value as Record<string, unknown> : {})));
       return null;
     }
 
@@ -244,7 +252,7 @@ export async function writeMany(actions: Mutation[], onProgress?: (done: number,
       const target = action.op === "save" ? action.record : action;
       const ref: DocumentReference = doc(collectionRef, `${target.kind}:${target.id}`);
       if (action.op === "delete") {
-        batch.set(ref, tombstone(target));
+        batch.set(ref, tombstone(target, action.trash));
       } else {
         const record = { ...action.record, version: newId() };
         batch.set(ref, stamped(record));

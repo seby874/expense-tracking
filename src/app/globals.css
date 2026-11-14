@@ -981,3 +981,70 @@ html.dark .auth-notice-info { background: #16243a; border-color: #24385a; color:
 html.dark .auth-notice-success { background: #13281f; border-color: #24443a; color: #8fdcbc; }
 html.dark .auth-sent p { color: #b8cbc2; }
 html.dark .net-hero { background: radial-gradient(ellipse at 80% 0%, #24493c 0%, transparent 80%), #12342b; }
+
+/* ---------------------------------------------------------------- 1.5 */
+
+/* Suggerimenti sotto la descrizione */
+.editor label.title-field, .title-field { position: relative; }
+.suggestions { position: absolute; z-index: 6; left: 0; right: 0; top: calc(100% + 3px); display: grid; margin: 0; padding: 4px; list-style: none;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 11px; box-shadow: 0 10px 30px #0b1f1826; max-height: 260px; overflow-y: auto; }
+.suggestions li { display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 8px; cursor: pointer; color: var(--muted); }
+.suggestions li > span { display: grid; min-width: 0; flex: 1; }
+.suggestions li strong { color: var(--ink); font-size: 12.5px; font-weight: 680; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestions li small { font-size: 11px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggestions li em { font-style: normal; font-size: 10.5px; font-weight: 650; color: var(--soft); }
+.suggestions li:hover, .suggestions li.is-active { background: var(--accent-pale); }
+
+/* Calcolatrice */
+.amount-preview { display: inline-flex; align-items: center; gap: 3px; margin-top: 4px; font-size: 12px; font-weight: 700; color: var(--accent); }
+.amount-preview.is-invalid { color: var(--warn); font-weight: 560; }
+.quick-entry > .amount-preview { justify-content: center; margin: -6px 0 2px; }
+
+/* Preferiti */
+.favorite-bar { display: flex; gap: 7px; overflow-x: auto; padding-bottom: 3px; scrollbar-width: thin; }
+.favorite-bar button { display: inline-flex; align-items: center; gap: 6px; flex: none; min-height: 38px; padding: 6px 11px; border: 1px solid var(--due-border);
+  background: var(--due-bg); color: var(--ink); border-radius: 999px; font-size: 12.5px; font-weight: 680; }
+.favorite-bar button svg { color: var(--warn); }
+.favorite-bar button small { color: var(--muted); font-size: 11px; font-weight: 560; }
+.favorite-bar button:hover { border-color: var(--warn); }
+.favorite-fields { align-items: end; }
+.editor label.check-row.compact, .check-row.compact { padding: 7px 9px; }
+.check-row strong svg { vertical-align: -2px; color: var(--warn); }
+
+/* Riconciliazione */
+.reconcile-box { display: grid; gap: 8px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--good-border); background: var(--good-pale); }
+.reconcile-box .split-head { color: var(--good); }
+.reconcile-box p { display: grid; gap: 2px; margin: 0; font-size: 12.5px; color: var(--ink); }
+.reconcile-box p small { color: var(--muted); font-size: 11px; }
+.reconcile-box.has-gap { border-color: var(--warn-border); background: var(--warn-pale); }
+.reconcile-box.has-gap .split-head, .reconcile-gap b { color: var(--warn); }
+.reconcile-panel .archived-actions b { font-size: 13px; white-space: nowrap; }
+.reconcile-panel .panel-note svg { flex: none; }
+
+/* Promemoria */
+.reminders { display: grid; gap: 8px; margin-bottom: 14px; }
+.reminder { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--due-border); background: var(--due-bg); border-radius: 11px; font-size: 12.5px; font-weight: 600; }
+.reminder > svg { flex: none; color: var(--warn); }
+.reminder > span { flex: 1; min-width: 0; }
+.reminder .button.small { min-height: 32px; padding: 5px 11px; }
+@media (max-width: 560px) { .reminder { flex-wrap: wrap; } .reminder > span { flex-basis: calc(100% - 60px); } }
+
+/* Toast con «Annulla» */
+.toast > span { min-width: 0; }
+.toast-action { display: inline-flex; align-items: center; gap: 5px; margin-left: 4px; padding: 4px 9px; border: 1px solid #ffffff55; border-radius: 7px; background: transparent; color: inherit; font: inherit; font-weight: 750; cursor: pointer; }
+.toast-action:hover { background: #ffffff1f; }
+
+/* Cestino */
+.trash-foot { display: flex; align-items: center; justify-content: flex-end; gap: 9px; margin-top: 10px; font-size: 12.5px; }
+.trash-list .archived-actions { flex: none; }
+
+/* Topbar: pulsante della modalità discreta */
+.topbar-end .icon-button[aria-pressed="true"] { color: var(--accent); background: var(--accent-pale); }
+
+/* Densità compatta e testo grande (Impostazioni → Personalizzazione) */
+html.density-compact { --pad: 16px; }
+html.density-compact .stats-grid, html.density-compact .split, html.density-compact .content { gap: 12px; }
+html.density-compact .data-table td, html.density-compact .data-table th { padding-top: 6px; padding-bottom: 6px; }
+html.density-compact .rule-list li { padding: 6px 0; }
+html.density-compact .editor { gap: 7px; }
+html.text-large .app-shell { zoom: 1.12; }
