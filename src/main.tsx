@@ -6,7 +6,9 @@ import { flushPending } from "./lib/local-ledger";
 import { applyLook, applyTheme, readLook, readTheme, requestCacheClear, setNoticeAfterReload, takeNoticeAfterReload } from "./lib/preferences";
 import { setupOfflineShell } from "./lib/offline-shell";
 import { APP_NAME } from "./lib/config";
-import { isIdleExpired, readIdleMinutes, saveIdleMinutes } from "./lib/session";
+import { isIdleExpired, lastActivity, markActivity, readIdleMinutes, saveIdleMinutes } from "./lib/session";
+import { LOCK_MAX_HOURS, lockEnabled } from "./lib/lock";
+import { LockScreen } from "./app/lock-screen";
 import { requestPasswordReset } from "./lib/auth-actions";
 import { LedgerApp } from "./app/ledger-app";
 import {
@@ -34,8 +36,15 @@ applyTheme(readTheme());
 applyLook(readLook());
 setupOfflineShell(offlineEnabled);
 
+/** Il blocco con impronta può sostituire il logout per inattività, entro LOCK_MAX_HOURS ore. */
+function canLock() {
+  const last = lastActivity();
+  return lockEnabled() && last !== null && Date.now() - last < LOCK_MAX_HOURS * 3_600_000;
+}
+
 function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [locked, setLocked] = useState(false);
   const [action, setAction] = useState(initialAction);
   const [screen, setScreen] = useState<"login" | "forgot">("login");
   const [forgotEmail, setForgotEmail] = useState("");
@@ -45,6 +54,11 @@ function App() {
   useEffect(() => onAuthStateChanged(auth, (next) => {
     // Sessione ripristinata dopo troppo tempo (scheda chiusa, PC in standby): si esce subito.
     const minutes = readIdleMinutes();
+    if (next && isIdleExpired(minutes) && canLock()) {
+      setLocked(true);
+      setUser(next);
+      return;
+    }
     if (next && isIdleExpired(minutes)) {
       setNotice({ tone: "info", text: expiredMessage(minutes) });
       signOut(auth).catch(() => setUser(null));
@@ -77,9 +91,16 @@ function App() {
     }
   }, []);
 
-  const idle = useIdleLogout(user ? idleMinutes : 0, () => {
+  const idle = useIdleLogout(user && !locked ? idleMinutes : 0, () => {
+    if (canLock()) { setLocked(true); return; }
     void logout({ tone: "info", text: expiredMessage(idleMinutes) });
   });
+
+  const unlock = useCallback(() => { markActivity(); setLocked(false); }, []);
+  const passwordInstead = useCallback(() => {
+    setLocked(false);
+    void logout({ tone: "info", text: expiredMessage(readIdleMinutes()) });
+  }, [logout]);
 
   function changeIdle(minutes: number) {
     saveIdleMinutes(minutes);
@@ -95,6 +116,8 @@ function App() {
   }
 
   if (user === undefined) return <Splash />;
+
+  if (user && locked) return <LockScreen email={user.email ?? ""} onUnlock={unlock} onPassword={passwordInstead} />;
 
   if (user) {
     return <>

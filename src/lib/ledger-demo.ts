@@ -79,5 +79,12 @@ export function sampleLedger(): LedgerRecord[] {
     parts: [{ amount: 3600, labelId: "out", subcategory: "Ristorante" }, { amount: 3600, creditId: "demo-marco" }] });
   add({ type: "transfer", date: "2027-03-02", title: "Prestito a Marco", amount: 5000, accountId: "revolut", toAccountId: "demo-marco", notes: "" });
   add({ type: "transfer", date: "2027-04-08", title: "Restituzione da Marco", amount: 4000, accountId: "demo-marco", toAccountId: "revolut", notes: "" });
-  return [...snapshots, ...extra, ...movements];
+  const planning: LedgerRecord[] = [
+    { kind: "budget", id: "demo-budget-out", version: newId(), value: { target: "label", ref: "out", amount: 12000, period: "month", order: 0 } },
+    { kind: "budget", id: "demo-budget-all", version: newId(), value: { target: "all", ref: "", amount: 90000, period: "month", order: 1 } },
+    { kind: "budget", id: "demo-budget-trip", version: newId(), value: { target: "tag", ref: trip[0], amount: 25000, period: "total", order: 2 } },
+    { kind: "goal", id: "demo-goal", version: newId(), value: { name: "Fondo emergenza", target: 300000, deadline: "2027-12-31", accountId: "fineco", saved: 0, icon: "piggy-bank", color: "teal", order: 0 } },
+    { kind: "template", id: "demo-coffee", version: newId(), value: { name: "Caffè", type: "expense", title: "Caffè al bar", amount: 120, labelId: "out", subcategory: "Ristorante", accountId: "revolut", toAccountId: null, method: "Carta", order: 0 } },
+  ];
+  return [...snapshots, ...extra, ...movements, ...planning];
 }

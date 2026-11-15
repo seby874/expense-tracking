@@ -1,17 +1,19 @@
 import { useId, type ReactNode } from "react";
 import {
   Archive, ArrowDownLeft, ArrowUpRight, CalendarClock, ChartNoAxesCombined, CircleHelp, HandCoins, Handshake, Landmark, PencilLine, Pencil, Plus, RefreshCw,
-  Scale, TrendingUp, Users, WalletCards,
+  Scale, Target, TrendingUp, Users, WalletCards,
 } from "lucide-react";
+import { GoalsTab, WorthPanel } from "./planning";
+import { toneClass } from "./style";
 import {
   ACCOUNT_TYPES, ASSET_CLASSES, accountBalances, balanceGaps, lastRecordedMonth, money, monthLabel, monthName, netWorth, rate, shortDate, yearMonths,
-  type Account, type Gap, type Ledger,
+  type Account, type Gap, type Goal, type Ledger,
 } from "../lib/ledger";
 import { debtStatus, type DebtStatus } from "../lib/debts";
 import { investmentHistory, investmentSummary } from "../lib/investments";
 import { AccountGlyph, Empty, HistoryChart, PanelTitle, axisMoney } from "./ledger-views";
 
-export type PatrimonioTab = "accounts" | "investments" | "debts" | "credits";
+export type PatrimonioTab = "accounts" | "investments" | "debts" | "credits" | "goals";
 
 const CLASS_COLORS: Record<string, string> = {
   equity: "#1d9e75", bond: "#378add", pension: "#7f77dd", crypto: "#ef9f27", deposit: "#5e8f3c", other: "#888780",
@@ -27,6 +29,8 @@ type Handlers = {
   onCredit: (account?: Account) => void;
   onCreditMove: (credit: Account, direction: "lend" | "back") => void;
   onAdjust: (gap: Gap) => void;
+  onGoal: (goal?: Goal) => void;
+  today: string;
 };
 
 /** Mesi in cui il saldo registrato non coincide con quello calcolato dai movimenti. */
@@ -58,7 +62,7 @@ export function Patrimonio({ ledger, year, month, monthChange, tab, onTab, ...ha
   const sum = netWorth(values);
   const part = (types: string[]) => values.filter(({ account }) => types.includes(account.value.type))
     .reduce((total, { amount }) => total + (amount ?? 0), 0);
-  const tabs: [PatrimonioTab, string, typeof WalletCards][] = [["accounts", "Conti", WalletCards], ["investments", "Investimenti", TrendingUp], ["debts", "Debiti", HandCoins], ["credits", "Crediti", Handshake]];
+  const tabs: [PatrimonioTab, string, typeof WalletCards][] = [["accounts", "Conti", WalletCards], ["investments", "Investimenti", TrendingUp], ["debts", "Debiti", HandCoins], ["credits", "Crediti", Handshake], ["goals", "Obiettivi", Target]];
   const credits = part(["receivable"]);
   return <>
     <section className="net-hero">
@@ -67,7 +71,7 @@ export function Patrimonio({ ledger, year, month, monthChange, tab, onTab, ...ha
           <span>Liquidità e beni {money(part(["cash", "asset"]))}</span>
           <span>Investimenti {money(part(["investment"]))}</span>
           {(credits !== 0 || ledger.accounts.some((account) => account.value.type === "receivable")) && <span>Crediti {money(credits)}</span>}
-          <span>Debiti −{money(part(["debt"]))}</span>
+          <span>Debiti {part(["debt"]) ? "−" : ""}{money(part(["debt"]))}</span>
         </p>
         <p>{monthLabel(month)} · {values.filter(({ amount }) => amount !== null).length} di {values.length} valori disponibili</p></div>
       <span className="net-decoration" aria-hidden="true"><ChartNoAxesCombined size={126} strokeWidth={1} /></span>
@@ -80,6 +84,7 @@ export function Patrimonio({ ledger, year, month, monthChange, tab, onTab, ...ha
     {tab === "investments" && <InvestmentsTab {...{ ledger, year, month }} {...handlers} />}
     {tab === "debts" && <DebtsTab {...{ ledger, year, month }} {...handlers} />}
     {tab === "credits" && <CreditsTab {...{ ledger, month }} {...handlers} />}
+    {tab === "goals" && <GoalsTab ledger={ledger} today={handlers.today} onEdit={handlers.onGoal} />}
   </>;
 }
 
@@ -91,18 +96,13 @@ function AccountsTab({ ledger, year, month, monthChange, onAccount, onBalance, o
   const values = accountBalances(ledger, month).filter(({ account }) => account.value.type === "cash" || account.value.type === "asset");
   const active = values.filter(({ account }) => !account.value.archived);
   const archived = values.filter(({ account }) => account.value.archived);
-  const latest = lastRecordedMonth(ledger);
-  const history = [`${year - 1}-12`, ...yearMonths(year)].map((key) => ({
-    month: key,
-    amount: latest && key <= latest ? netWorth(accountBalances(ledger, key)) : null,
-  }));
   return <>
     <section className="panel account-list">
       <PanelTitle title="I tuoi conti" subtitle="Liquidità e altre attività."
         action={<button type="button" className="button secondary" onClick={() => onAccount()}><Plus size={17} /> Nuovo conto</button>} />
       <div className="account-grid">
         {active.map(({ account, amount, exact, snapshot }) => <article className="account-card" key={account.id}>
-          <div className="account-card-top"><span className={`account-symbol account-${account.id}`}><AccountGlyph account={account} /></span>
+          <div className="account-card-top"><span className={`account-symbol account-${account.id}${toneClass(account.value.color)}`}><AccountGlyph account={account} /></span>
             <div><h3>{account.value.name}</h3><span>{ACCOUNT_TYPES[account.value.type]}</span></div>
             <button className="icon-button quiet" type="button" aria-label={`Modifica ${account.value.name}`} title="Modifica, archivia o elimina" onClick={() => onAccount(account)}><Pencil size={16} /></button>
           </div>
@@ -121,18 +121,7 @@ function AccountsTab({ ledger, year, month, monthChange, onAccount, onBalance, o
       <p className="panel-note"><CircleHelp size={16} /> Il saldo registrato a fine mese comprende già i movimenti di quel mese. L’app applica quelli collegati dei mesi successivi.</p>
     </section>
     <ReconcilePanel ledger={ledger} onAdjust={onAdjust} />
-    <section className="panel history-panel">
-      <PanelTitle title="Storico del patrimonio" subtitle={`Patrimonio netto da dicembre ${year - 1} a dicembre ${year}`} />
-      {history.some(({ amount }) => amount !== null) ? <>
-        <HistoryChart points={history} month={month} onMonth={monthChange} />
-        <details className="history-detail"><summary>Mostra valori mensili</summary>
-          <div className="table-scroll"><table className="data-table compact-table">
-            <thead><tr><th scope="col">Mese</th><th className="number" scope="col">Patrimonio netto</th></tr></thead>
-            <tbody>{history.map((point) => <tr key={point.month}><td>{monthLabel(point.month)}</td><td className="number">{money(point.amount)}</td></tr>)}</tbody>
-          </table></div>
-        </details>
-      </> : <Empty icon={<ChartNoAxesCombined size={23} />} title="Lo storico è ancora vuoto">Registra il saldo di un conto per iniziare a tracciare il patrimonio.</Empty>}
-    </section>
+    <WorthPanel ledger={ledger} month={month} onMonth={monthChange} />
   </>;
 }
 

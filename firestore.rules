@@ -21,7 +21,7 @@ service cloud.firestore {
         && data.keys().hasAll(['kind', 'id', 'version', 'value', 'updatedAt'])
         && data.updatedAt == request.time
         && (!('deleted' in data) || data.deleted == true)
-        && data.kind in ['movement', 'balance', 'account', 'label', 'recurring', 'rule', 'import', 'template']
+        && data.kind in ['movement', 'balance', 'account', 'label', 'recurring', 'rule', 'import', 'template', 'budget', 'goal', 'setting']
         && data.id is string
         && data.id.size() > 0
         && data.id.size() <= 73

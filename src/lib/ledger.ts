@@ -170,7 +170,40 @@ export const templateValueSchema = z.object({
 
 // `archived`: nascosto dai menu ma con lo storico intatto.
 // `removed`: segna come eliminata una voce predefinita (che altrimenti tornerebbe dal codice).
-const flags = { archived: z.boolean().optional(), removed: z.boolean().optional() };
+// `color`, `icon`, `order`: aspetto e posizione scelti in Impostazioni.
+const flags = {
+  archived: z.boolean().optional(), removed: z.boolean().optional(),
+  color: z.string().regex(/^[a-z]{2,12}$/).optional(), icon: z.string().regex(/^[a-z-]{2,30}$/).optional(),
+  order: z.number().int().min(0).max(10_000).optional(),
+};
+
+/** Budget: un tetto di spesa per tutte le spese, una categoria o un tag; mensile o complessivo (es. un viaggio). */
+export const budgetValueSchema = z.object({
+  target: z.enum(["all", "label", "tag"]),
+  ref: z.string().max(80),
+  amount: cents.positive(),
+  period: z.enum(["month", "total"]),
+  order: z.number().int().min(0).max(10_000),
+});
+
+/** Obiettivo di risparmio: progresso dal saldo di un conto oppure aggiornato a mano. */
+export const goalValueSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  target: cents.positive(),
+  deadline: z.union([dateSchema, z.literal("")]),
+  accountId: id.nullable(),
+  saved: cents.min(0),
+  icon: z.string().regex(/^[a-z-]{2,30}$/).optional(),
+  color: z.string().regex(/^[a-z]{2,12}$/).optional(),
+  done: z.boolean().optional(),
+  order: z.number().int().min(0).max(10_000),
+});
+
+/** Impostazioni comuni a tutti i dispositivi (un solo documento, id "general"). */
+export const settingsValueSchema = z.object({
+  // Giorno in cui inizia il "mese" per entrate, spese e budget (1 = mese di calendario).
+  periodStart: z.number().int().min(1).max(28),
+});
 
 export const recordSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("movement"), id, version, value: movementValue }),
@@ -197,10 +230,13 @@ export const recordSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("rule"), id, version, value: ruleValueSchema }),
   z.object({ kind: z.literal("import"), id, version, value: importValueSchema }),
   z.object({ kind: z.literal("template"), id, version, value: templateValueSchema }),
+  z.object({ kind: z.literal("budget"), id, version, value: budgetValueSchema }),
+  z.object({ kind: z.literal("goal"), id, version, value: goalValueSchema }),
+  z.object({ kind: z.literal("setting"), id: z.literal("general"), version, value: settingsValueSchema }),
 ]);
 
 // "rule" e "import" restano solo per leggere i dati salvati dalle versioni con l'importazione degli estratti conto.
-export const RECORD_KINDS = ["movement", "balance", "account", "label", "recurring", "rule", "import", "template"] as const;
+export const RECORD_KINDS = ["movement", "balance", "account", "label", "recurring", "rule", "import", "template", "budget", "goal", "setting"] as const;
 
 export const mutationSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("save"), record: recordSchema }),
@@ -223,6 +259,10 @@ export type Recurring = Extract<LedgerRecord, { kind: "recurring" }>;
 export type Rule = Extract<LedgerRecord, { kind: "rule" }>;
 export type ImportBatch = Extract<LedgerRecord, { kind: "import" }>;
 export type Template = Extract<LedgerRecord, { kind: "template" }>;
+export type Budget = Extract<LedgerRecord, { kind: "budget" }>;
+export type Goal = Extract<LedgerRecord, { kind: "goal" }>;
+export type Settings = Extract<LedgerRecord, { kind: "setting" }>;
+export const DEFAULT_SETTINGS: Settings["value"] = { periodStart: 1 };
 export type Part = z.infer<typeof partSchema>;
 export type MovementOrigin = z.infer<typeof originSchema>;
 export type Schedule = Recurring["value"]["schedule"];
@@ -288,6 +328,9 @@ export function deriveLedger(records: LedgerRecord[]) {
   const rules: Rule[] = [];
   const imports: ImportBatch[] = [];
   const templates: Template[] = [];
+  const budgets: Budget[] = [];
+  const goals: Goal[] = [];
+  let settings: Settings | null = null;
   const removed: (Account | Label)[] = [];
 
   for (const record of records) {
@@ -304,6 +347,9 @@ export function deriveLedger(records: LedgerRecord[]) {
       case "rule": rules.push(record); break;
       case "import": imports.push(record); break;
       case "template": templates.push(record); break;
+      case "budget": budgets.push(record); break;
+      case "goal": goals.push(record); break;
+      case "setting": settings = record; break;
     }
   }
 
@@ -312,7 +358,15 @@ export function deriveLedger(records: LedgerRecord[]) {
   recurring.sort((a, b) => a.value.template.title.localeCompare(b.value.template.title, "it"));
   imports.sort((a, b) => b.value.at.localeCompare(a.value.at) || b.id.localeCompare(a.id));
   templates.sort((a, b) => a.value.order - b.value.order || a.value.name.localeCompare(b.value.name, "it"));
-  return { accounts: [...accounts.values()], labels: [...labels.values()], movements, balances, recurring, rules, imports, templates, removed };
+  budgets.sort((a, b) => a.value.order - b.value.order);
+  goals.sort((a, b) => Number(!!a.value.done) - Number(!!b.value.done) || a.value.order - b.value.order);
+  // Ordine scelto dall'utente; senza, quello predefinito (prima le voci di base, poi le altre).
+  const ordered = <T extends Account | Label>(items: T[]) => items.map((item, index) => ({ item, key: item.value.order ?? 1000 + index }))
+    .sort((a, b) => a.key - b.key).map(({ item }) => item);
+  return {
+    accounts: ordered([...accounts.values()]), labels: ordered([...labels.values()]), movements, balances, recurring, rules, imports, templates,
+    budgets, goals, settings: (settings as Settings | null)?.value ?? DEFAULT_SETTINGS, settingsRecord: settings as Settings | null, removed,
+  };
 }
 
 export function activeAccounts(ledger: Ledger, keep?: string | null) {
@@ -461,7 +515,7 @@ export function totals(movements: Movement[]) {
 export function yearlyFlow(ledger: Ledger, year: number) {
   const monthGroups = new Map(yearMonths(year).map((month) => [month, [] as Movement[]]));
   for (const movement of ledger.movements) {
-    monthGroups.get(movement.value.date.slice(0, 7))?.push(movement);
+    monthGroups.get(periodOf(movement.value.date))?.push(movement);
   }
   return [...monthGroups.entries()].map(([month, movements]) => ({ month, ...totals(movements) }));
 }
@@ -500,7 +554,7 @@ export function mix(movements: Movement[], labels: Label[], type: "expense" | "i
     name: label.value.name,
     amount: values.get(label.id)?.amount ?? 0,
     detail: [...(values.get(label.id)?.detail ?? [])].sort((a, b) => b[1] - a[1]),
-    color: COLORS[index % COLORS.length],
+    color: label.value.color && label.value.color in TONE_HEX ? TONE_HEX[label.value.color as Tone] : COLORS[index % COLORS.length],
   }));
 }
 
@@ -544,8 +598,46 @@ export function netWorth(balances: ReturnType<typeof accountBalances>) {
   return known.length ? known.reduce((sum, { account, amount }) => sum + (account.value.type === "debt" ? -(amount ?? 0) : (amount ?? 0)), 0) : null;
 }
 
+// ---------------------------------------------------------------- Inizio del mese personalizzato
+
+let periodStart = 1;
+/** Impostato all'apertura dall'impostazione comune (vedi Impostazioni → Periodo). */
+export function setPeriodStart(day: number) { periodStart = Math.min(28, Math.max(1, Math.round(day) || 1)); }
+export function getPeriodStart() { return periodStart; }
+
+function shiftMonth(month: string, step: number) {
+  const [year, number] = month.split("-").map(Number);
+  const date = new Date(Date.UTC(year, number - 1 + step, 1));
+  return date.toISOString().slice(0, 7);
+}
+
+/**
+ * Il "mese" a cui appartiene una data. Con inizio al giorno 1 è il mese di calendario.
+ * Con un altro giorno il periodo prende il nome del mese in cui cade la maggior parte dei suoi giorni:
+ * inizio il 5 → "novembre" va dal 5 novembre al 4 dicembre; inizio il 27 → "novembre" va dal 27 ottobre al 26 novembre.
+ */
+export function periodOf(date: string) {
+  const month = date.slice(0, 7);
+  if (periodStart === 1) return month;
+  const day = Number(date.slice(8, 10));
+  if (periodStart <= 15) return day >= periodStart ? month : shiftMonth(month, -1);
+  return day >= periodStart ? shiftMonth(month, 1) : month;
+}
+
+/** Primo e ultimo giorno del periodo "AAAA-MM". */
+export function periodRange(month: string): [string, string] {
+  if (periodStart === 1) return [`${month}-01`, monthEnd(month)];
+  const startMonth = periodStart <= 15 ? month : shiftMonth(month, -1);
+  const start = `${startMonth}-${String(periodStart).padStart(2, "0")}`;
+  const endMonth = shiftMonth(startMonth, 1);
+  const end = new Date(Date.UTC(Number(endMonth.slice(0, 4)), Number(endMonth.slice(5, 7)) - 1, periodStart - 1)).toISOString().slice(0, 10);
+  return [start, end];
+}
+
+export { shiftMonth };
+
 export function periodMovements(ledger: Ledger, period: string) {
-  return ledger.movements.filter(({ value }) => value.date.startsWith(period));
+  return ledger.movements.filter(({ value }) => periodOf(value.date).startsWith(period));
 }
 
 export function lastRecordedMonth(ledger: Ledger) {
@@ -726,3 +818,13 @@ export function adjustmentMovement(ledger: Ledger, accountId: string, month: str
     ? { ...common, type: "expense", title: "Spese non registrate", labelId, subcategory: "", method: "" }
     : { ...common, type: "income", title: "Entrate non registrate", labelId };
 }
+
+// ---------------------------------------------------------------- Colori disponibili
+
+/** Tinte per conti, categorie e obiettivi (i valori sono in globals.css e app/style.tsx). */
+export const TONES = ["green", "teal", "blue", "indigo", "purple", "pink", "red", "orange", "amber", "olive", "slate"] as const;
+export type Tone = (typeof TONES)[number];
+export const TONE_HEX: Record<Tone, string> = {
+  green: "#13836e", teal: "#0f8a9a", blue: "#3567c8", indigo: "#5654c4", purple: "#8650b8", pink: "#c2457f",
+  red: "#c8463d", orange: "#d9713a", amber: "#c99a1e", olive: "#6f8a2e", slate: "#5d7480",
+};

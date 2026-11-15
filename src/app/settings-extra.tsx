@@ -1,11 +1,17 @@
-import { useState, type ChangeEvent, type ReactNode } from "react";
+import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
 import {
-  ArrowDown, ArrowUp, CircleAlert, DatabaseBackup, EyeOff, FileUp, LayoutGrid, Pencil, Plus, RotateCcw, Star, Tag, Trash2, Type,
+  ArrowDown, ArrowUp, CalendarRange, CircleAlert, DatabaseBackup, EyeOff, FileUp, Fingerprint, Keyboard, LayoutGrid, Palette, Pencil, Plus,
+  RotateCcw, Star, Tag, Trash2, TriangleAlert, Type,
 } from "lucide-react";
 import {
   ENTRY_TYPES, allTags, hasTag, money, monthLabel, sameName, shortDate,
-  type Ledger, type LedgerRecord, type Mutation, type Template,
+  todayInRome,
+  type Account, type Label, type Ledger, type LedgerRecord, type Mutation, type Template,
 } from "../lib/ledger";
+import { OVERVIEW_WIDGETS, readWidgets, saveWidgets, type WidgetPref } from "../lib/preferences";
+import { disableLock, enableLock, lockAvailable, lockEnabled, LOCK_MAX_HOURS } from "../lib/lock";
+import { ACCENTS, StyleIcon, StylePicker, toneClass } from "./style";
+import { AccountGlyph } from "./ledger-views";
 import type { TrashItem } from "../lib/ledger-sync";
 import { planRestore, type RestorePlan } from "../lib/data-io";
 import { readLook, saveLook, type Density, type LookPrefs, type StartScreen, type TextSize } from "../lib/preferences";
@@ -158,13 +164,221 @@ export function PersonalPanel() {
         </div>
       </li>
       <li>
+        <span className="security-icon"><Palette size={18} /></span>
+        <div><strong>Colore principale</strong><p>Pulsanti, evidenziazioni e collegamenti.</p></div>
+        <div className="swatches" role="group" aria-label="Colore principale">
+          {ACCENTS.map(([key, title]) => <button type="button" key={key} className={`swatch accent-${key}`} aria-pressed={look.accent === key}
+            aria-label={title} title={title} onClick={() => update({ accent: key })} />)}
+        </div>
+      </li>
+      <li>
         <span className="security-icon"><CircleAlert size={18} /></span>
         <div><strong>Promemoria</strong><p>In Panoramica: giorni senza movimenti, saldi di fine mese da registrare, backup da scaricare.</p></div>
         <label className="switch"><input type="checkbox" checked={look.reminders} onChange={(event) => update({ reminders: event.target.checked })} />
           <span aria-hidden="true" /><span className="sr-only">Promemoria</span></label>
       </li>
+      <li>
+        <span className="security-icon"><Keyboard size={18} /></span>
+        <div><strong>Scorciatoie da tastiera</strong>
+          <p><kbd>N</kbd> nuovo movimento · <kbd>V</kbd> spesa veloce · <kbd>/</kbd> cerca · <kbd>1</kbd>–<kbd>5</kbd> sezioni · <kbd>D</kbd> modalità discreta · <kbd>Esc</kbd> chiude</p></div>
+      </li>
     </ul>
   </section>;
+}
+
+// ---------------------------------------------------------------- Panoramica a scelta
+
+export function OverviewPanel() {
+  const [list, setList] = useState<WidgetPref[]>(readWidgets);
+  const store = (next: WidgetPref[]) => { setList(next); saveWidgets(next); };
+  const move = (index: number, step: -1 | 1) => {
+    const next = [...list];
+    const [item] = next.splice(index, 1);
+    next.splice(index + step, 0, item);
+    store(next);
+  };
+  return <section className="panel settings-extra">
+    <PanelHead icon={<LayoutGrid size={18} />} title="Panoramica" subtitle="Scegli quali riquadri vedere e in che ordine (solo su questo dispositivo)." />
+    <ul className="rule-list widget-list">{list.map((item, index) => <li key={item.key}>
+      <label className="check-row compact"><input type="checkbox" checked={item.on} onChange={(event) => store(list.map((entry) => entry.key === item.key ? { ...entry, on: event.target.checked } : entry))} />
+        <span><strong>{OVERVIEW_WIDGETS[item.key]}</strong></span></label>
+      <span className="archived-actions">
+        <button type="button" className="icon-button quiet" aria-label={`Sposta su ${OVERVIEW_WIDGETS[item.key]}`} disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={15} /></button>
+        <button type="button" className="icon-button quiet" aria-label={`Sposta giù ${OVERVIEW_WIDGETS[item.key]}`} disabled={index === list.length - 1} onClick={() => move(index, 1)}><ArrowDown size={15} /></button>
+      </span>
+    </li>)}</ul>
+  </section>;
+}
+
+// ---------------------------------------------------------------- Conti e categorie: aspetto e ordine
+
+type Group = "account" | "expense" | "income";
+
+export function OrganizePanel({ ledger, busy, onCommit, onStyle }: {
+  ledger: Ledger; busy: boolean; onCommit: (actions: Mutation[], message: string) => void; onStyle: (record: Account | Label) => void;
+}) {
+  const [group, setGroup] = useState<Group>("account");
+  const items: (Account | Label)[] = group === "account"
+    ? ledger.accounts.filter((account) => !account.value.archived)
+    : ledger.labels.filter((label) => label.value.type === group && !label.value.archived);
+
+  /** Riscrive la posizione di tutto il gruppo (solo le voci che cambiano davvero). */
+  function move(index: number, step: -1 | 1) {
+    const next = [...items];
+    const [item] = next.splice(index, 1);
+    next.splice(index + step, 0, item);
+    const actions = next.flatMap((record, order) => record.value.order === order ? []
+      : [{ op: "save" as const, record: { ...record, value: { ...record.value, order } } as LedgerRecord }]);
+    onCommit(actions, "Ordine aggiornato.");
+  }
+
+  return <section className="panel settings-extra">
+    <PanelHead icon={<Palette size={18} />} title="Conti e categorie" subtitle="Ordine, colori e icone: valgono su tutti i dispositivi." />
+    <div className="segmented" role="group" aria-label="Cosa organizzare">
+      {([["account", "Conti"], ["expense", "Categorie di spesa"], ["income", "Fonti di entrata"]] as [Group, string][]).map(([value, title]) =>
+        <button type="button" key={value} aria-pressed={group === value} onClick={() => setGroup(value)}>{title}</button>)}
+    </div>
+    <ul className="rule-list organize-list">{items.map((item, index) => <li key={item.id}>
+      <div className="organize-name">
+        {item.kind === "account"
+          ? <span className={`account-symbol account-${item.id}${toneClass(item.value.color)}`}><AccountGlyph account={item} /></span>
+          : <span className={`label-mark big${toneClass(item.value.color)}`}><StyleIcon icon={item.value.icon} size={15} /></span>}
+        <strong>{item.value.name}</strong>
+      </div>
+      <span className="archived-actions">
+        <button type="button" className="text-button" onClick={() => onStyle(item)}><Palette size={14} /> Aspetto</button>
+        <button type="button" className="icon-button quiet" aria-label={`Sposta su ${item.value.name}`} disabled={busy || index === 0} onClick={() => move(index, -1)}><ArrowUp size={15} /></button>
+        <button type="button" className="icon-button quiet" aria-label={`Sposta giù ${item.value.name}`} disabled={busy || index === items.length - 1} onClick={() => move(index, 1)}><ArrowDown size={15} /></button>
+      </span>
+    </li>)}</ul>
+  </section>;
+}
+
+/** Colore e icona di un conto o di una categoria. */
+export function StyleDialog({ record, busy, error, onCommit }: {
+  record: Account | Label; busy: boolean; error: string; onCommit: (actions: Mutation[], message: string) => void;
+}) {
+  const [style, setStyle] = useState<{ color?: string; icon?: string }>({ color: record.value.color, icon: record.value.icon });
+  function save() {
+    const { color: _color, icon: _icon, ...rest } = record.value;
+    const value = { ...rest, ...(style.color ? { color: style.color } : {}), ...(style.icon ? { icon: style.icon } : {}) };
+    onCommit([{ op: "save", record: { ...record, value } as LedgerRecord }], "Aspetto aggiornato.");
+  }
+  return <div className="editor">
+    <div className="style-preview">
+      {record.kind === "account"
+        ? <span className={`account-symbol account-${record.id}${toneClass(style.color)}`}><AccountGlyph account={{ ...record, value: { ...record.value, ...style } }} /></span>
+        : <span className={`label-mark big${toneClass(style.color)}`}><StyleIcon icon={style.icon} size={15} /></span>}
+      <strong>{record.value.name}</strong>
+    </div>
+    <StylePicker color={style.color} icon={style.icon} onChange={setStyle} />
+    <FormError message={error} />
+    <div className="modal-actions"><button type="button" className="button primary" disabled={busy} onClick={save}>{busy ? "Salvataggio…" : "Salva"}</button></div>
+  </div>;
+}
+
+// ---------------------------------------------------------------- Inizio del mese
+
+export function PeriodPanel({ ledger, busy, demo, onCommit }: {
+  ledger: Ledger; busy: boolean; demo: boolean; onCommit: (actions: Mutation[], message: string) => void;
+}) {
+  const [day, setDay] = useState(ledger.settings.periodStart);
+  useEffect(() => setDay(ledger.settings.periodStart), [ledger.settings.periodStart]);
+  const today = todayInRome();
+  const preview = describePeriod(day, today);
+  return <section className="panel settings-extra">
+    <PanelHead icon={<CalendarRange size={18} />} title="Inizio del mese" subtitle="Per entrate, spese, budget e analisi. I saldi restano a fine mese di calendario." />
+    <div className="period-setting">
+      <label>Il mese inizia il giorno
+        <select value={day} onChange={(event) => setDay(Number(event.target.value))}>
+          {Array.from({ length: 28 }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value === 1 ? "1 (mese di calendario)" : value}</option>)}
+        </select></label>
+      <p className="form-help">{preview}</p>
+      <button type="button" className="button secondary" disabled={busy || demo || day === ledger.settings.periodStart}
+        onClick={() => onCommit([{ op: "save", record: { kind: "setting", id: "general", version: ledger.settingsRecord?.version ?? null, value: { ...ledger.settings, periodStart: day } } }],
+          day === 1 ? "Ora il mese è quello di calendario." : `Ora il mese inizia il giorno ${day}.`)}>Salva</button>
+    </div>
+  </section>;
+}
+
+function describePeriod(day: number, today: string) {
+  if (day === 1) return "Ogni mese va dal giorno 1 all’ultimo giorno del mese.";
+  const months = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
+  const month = Number(today.slice(5, 7));
+  const name = months[month - 1];
+  const prev = months[(month + 10) % 12];
+  const next = months[month % 12];
+  return day <= 15
+    ? `Esempio: «${name}» va dal ${day} ${name} al ${day - 1} ${next}. Utile se ricevi le entrate all’inizio del mese.`
+    : `Esempio: «${name}» va dal ${day} ${prev} al ${day - 1} ${name}. Utile se lo stipendio arriva il ${day}: le spese contano nel mese di quello stipendio.`;
+}
+
+// ---------------------------------------------------------------- Sblocco con impronta
+
+export function LockSetting({ email }: { email: string }) {
+  const [available, setAvailable] = useState<boolean | null>(null);
+  const [on, setOn] = useState(lockEnabled);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { void lockAvailable().then(setAvailable); }, []);
+
+  async function toggle(next: boolean) {
+    setError("");
+    if (!next) { disableLock(); setOn(false); return; }
+    setBusy(true);
+    try { await enableLock(email); setOn(true); } catch { setError("Attivazione non riuscita o annullata."); }
+    setBusy(false);
+  }
+
+  return <section className="panel device-panel">
+    <PanelHead icon={<Fingerprint size={18} />} title="Sblocco con impronta" subtitle="Solo su questo dispositivo." />
+    <ul className="security-list"><li>
+      <span className="security-icon"><Fingerprint size={18} /></span>
+      <div><strong>{on ? "Attivo" : "Disattivato"}</strong>
+        <p>{available === false ? "Questo dispositivo o browser non ha uno sblocco con impronta o PIN utilizzabile. Resta il logout per inattività."
+          : `Dopo l’inattività l’app si blocca invece di disconnetterti: la sblocchi con impronta, volto o PIN del dispositivo. Dopo ${LOCK_MAX_HOURS} ore serve comunque la password. È un blocco locale: protegge da chi prende in mano il dispositivo.`}</p>
+        {error && <p className="form-error" role="alert">{error}</p>}</div>
+      {available !== false && <label className="switch"><input type="checkbox" checked={on} disabled={busy || available === null} onChange={(event) => void toggle(event.target.checked)} />
+        <span aria-hidden="true" /><span className="sr-only">Sblocco con impronta</span></label>}
+    </li></ul>
+  </section>;
+}
+
+// ---------------------------------------------------------------- Ricomincia da zero
+
+export function ResetPanel({ demo, onReset }: { demo: boolean; onReset: () => void }) {
+  return <section className="panel settings-extra danger-panel">
+    <PanelHead icon={<TriangleAlert size={18} />} title="Ricomincia da zero" subtitle="Svuota l’archivio: l’app torna come appena installata, con conti e categorie iniziali." />
+    <p className="panel-note">Tutto finisce nel cestino: per {TRASH_DAYS} giorni puoi ripristinarlo, oppure svuotare il cestino per eliminarlo definitivamente.</p>
+    <button type="button" className="button danger-quiet" disabled={demo} onClick={onReset}><Trash2 size={16} /> Ricomincia da zero…</button>
+    {demo && <p className="panel-note">Non disponibile con i dati di esempio.</p>}
+  </section>;
+}
+
+export const RESET_WORD = "RICOMINCIA";
+
+export function ResetDialog({ count, busy, error, progress, onConfirm, onCancel }: {
+  count: number; busy: boolean; error: string; progress: string; onConfirm: (device: boolean) => void; onCancel: () => void;
+}) {
+  const [word, setWord] = useState("");
+  const [device, setDevice] = useState(false);
+  return <div className="editor">
+    <div className="notice warning-notice"><TriangleAlert size={18} /><div>
+      <strong>{count.toLocaleString("it-IT")} voci andranno nel cestino</strong>
+      <p>Movimenti, saldi, ricorrenti, preferiti, budget, obiettivi, conti e categorie personalizzati, impostazioni comuni. L’app riparte vuota, con Fineco, Revolut, Contanti e le categorie iniziali. Le scritture su Firestore sono {count.toLocaleString("it-IT")}.</p>
+    </div></div>
+    <label className="check-row compact"><input type="checkbox" checked={device} onChange={(event) => setDevice(event.target.checked)} />
+      <span><strong>Azzera anche questo dispositivo</strong><small>Personalizzazione, riquadri della Panoramica, filtri salvati e promemoria. Tema, uso offline e sblocco con impronta restano.</small></span></label>
+    <label>Per confermare scrivi <b>{RESET_WORD}</b>
+      <input value={word} onChange={(event) => setWord(event.target.value)} autoComplete="off" autoCapitalize="characters" spellCheck={false} /></label>
+    {progress && <p className="form-help" role="status">{progress}</p>}
+    <FormError message={error} />
+    <div className="modal-actions">
+      <button type="button" className="button secondary" disabled={busy} onClick={onCancel}>Annulla</button>
+      <button type="button" className="button danger" disabled={busy || word.trim().toUpperCase() !== RESET_WORD || !count} onClick={() => onConfirm(device)}>
+        <Trash2 size={16} /> {busy ? "Svuotamento…" : "Ricomincia da zero"}</button>
+    </div>
+  </div>;
 }
 
 // ---------------------------------------------------------------- Ripristino del backup

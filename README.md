@@ -17,6 +17,18 @@ App personale in italiano per registrare entrate, spese, trasferimenti, saldi de
 - **Modalità discreta**: l’occhio in alto nasconde gli importi (••• €); può partire attiva all’apertura.
 - **Personalizzazione** per dispositivo: schermata d’apertura, densità compatta o comoda, testo normale o grande, promemoria.
 - **Promemoria** in Panoramica: giorni senza movimenti, saldi di fine mese da registrare, backup da scaricare.
+- **Panoramica a scelta**: riquadri da accendere, spegnere e riordinare (Impostazioni → Panoramica, per dispositivo).
+- **Budget** mensili o complessivi per categoria, tag o tutte le spese, con avviso all’80% (Analisi e Panoramica).
+- **Obiettivi di risparmio** collegati al saldo di un conto o aggiornati a mano, con la quota da mettere da parte al mese (Patrimonio → Obiettivi).
+- **Previsione dei prossimi 30 giorni** per ogni conto di liquidità: ricorrenti, rate e movimenti futuri, con avviso se un conto va in rosso.
+- **Andamento del patrimonio** su 12 mesi, 24 mesi o tutto, con liquidità, investimenti e debiti e l’origine della variazione (risparmio, rendimento, altro).
+- **Riepilogo del mese o dell’anno**, stampabile come PDF, e **segnalazioni** rispetto alla tua media.
+- **Inizio del mese personalizzato** (es. dal 27 al 26): vale per entrate, spese, budget e analisi; i saldi restano di fine mese di calendario.
+- **Colori, icone e ordine** di conti e categorie (Impostazioni → Conti e categorie) e **colore principale** dell’app.
+- **Registro**: filtri avanzati (conto, importo, date, tutti i periodi), **filtri salvati**, **selezione multipla** (categoria, tag, eliminazione) e **gesti** sul telefono (destra = duplica, sinistra = elimina).
+- **Scorciatoie da tastiera**: N nuovo movimento, V spesa veloce, / cerca, 1–5 sezioni, D modalità discreta.
+- **Sblocco con impronta** (WebAuthn): dopo l’inattività l’app si blocca invece di disconnettere; dopo 12 ore serve la password.
+- **Ricomincia da zero**: svuota l’archivio (tutto nel cestino, ripristinabile per 30 giorni) e riparte con conti e categorie iniziali.
 - **Tag liberi** sui movimenti (es. un viaggio), con filtro, totale e riepilogo per tag in Analisi.
 - **Spesa divisa** tra più categorie, anche con una parte anticipata per qualcuno (va al suo credito).
 - **Crediti** in Patrimonio: soldi prestati o anticipati, con restituzioni.
@@ -51,8 +63,13 @@ src/
   app/settings-extra.tsx  preferiti, cestino, personalizzazione, ripristino del backup e tag in Impostazioni
   app/inputs.tsx        descrizione con suggerimenti e anteprima della calcolatrice
   app/reminders.tsx     promemoria in Panoramica
+  app/planning.tsx      budget, obiettivi, previsione, segnalazioni, riepilogo, andamento del patrimonio
+  app/style.tsx         colori e icone
+  app/lock-screen.tsx   schermata di blocco
   lib/investments.ts    valore, versato e rendimento degli investimenti
   lib/data-io.ts        esportazione CSV, backup e ripristino
+  lib/planning.ts       calcoli di previsione, budget, obiettivi, segnalazioni e riepiloghi
+  lib/lock.ts           sblocco con impronta (WebAuthn)
   lib/preferences.ts    tema, uso offline e personalizzazione (per dispositivo)
   lib/offline-shell.ts  registrazione del service worker (public/sw.js)
   lib/config.ts         nome dell'app e opzioni (reset password, minuti di inattività)
