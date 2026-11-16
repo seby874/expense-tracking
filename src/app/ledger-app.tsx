@@ -35,7 +35,7 @@ import { moduleOn } from "../lib/params";
 import type { ModuleKey } from "../lib/ledger";
 import { AnalysisTabs, RefundsPanel, TaxView, type AnalysisTab } from "./analysis";
 import { Reminders } from "./reminders";
-import { APP_NAME } from "../lib/config";
+import { APP_NAME, APP_VERSION } from "../lib/config";
 import { archiveActions, archivedYearOf, reopenActions } from "../lib/archive";
 import { backupDue as backupDueNow, makeBackup, markBackupDone, readBackupPrefs } from "../lib/backup/schedule";
 import { folderPermission, savedFolder, writeToFolder } from "../lib/backup/folder";
@@ -819,6 +819,8 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   function exportBackup() { void runBackup(true); }
 
   const sectionTitle = SECTIONS[section].title;
+  // Titolo della scheda del browser con la sezione aperta.
+  useEffect(() => { document.title = `${sectionTitle} · ${APP_NAME}`; }, [sectionTitle]);
   const presetDebt = form?.type === "movement" && form.preset?.type === "repayment" ? ledger.accounts.find((account) => account.id === (form.preset as { debtId: string }).debtId) : undefined;
   const flexiblePreset = presetDebt?.value.debt?.kind === "flexible";
   const presetTransfer = form?.type === "movement" && form.preset?.type === "transfer" ? form.preset : null;
@@ -992,7 +994,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
             <BackupPanel busy={busy} demo={demo} onBackupNow={exportBackup} /><DossierPanel ledger={ledger} today={today} /><ArchivePanel ledger={ledger} today={today} documents={storeInfo.documents} busy={busy} demo={demo}
             onArchive={archiveYear} onReopen={reopenYear} /></>}
           busy={busy} onCommit={(actions, message) => { void commit(actions, message, { closeForm: false }); }} />}
-        <footer className="workspace-footer"><span>{APP_NAME}</span><span>{period.length === 4 ? "Anno " + period : monthLabel(period)}</span></footer>
+        <footer className="workspace-footer"><span>{APP_NAME} · versione {APP_VERSION}</span><span>{period.length === 4 ? "Anno " + period : monthLabel(period)}</span></footer>
       </main>
     </div>
     {canEdit && !form && <button type="button" className="fab" aria-label="Spesa veloce" title="Spesa veloce" onClick={() => quick("expense")}><Plus size={26} /></button>}

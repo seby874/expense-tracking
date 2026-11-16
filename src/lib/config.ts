@@ -2,6 +2,9 @@
 
 export const APP_NAME = "Expense Tracking";
 
+// Versione mostrata in fondo all'app: serve a capire se il browser ha caricato l'ultimo aggiornamento.
+export const APP_VERSION = "2.0.1";
+
 // Mostra il link "Password dimenticata?" nella schermata di accesso.
 export const PASSWORD_RESET_ENABLED = true;
 
