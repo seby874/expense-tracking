@@ -163,6 +163,7 @@ export function sampleLedger(today = todayInRome()): LedgerRecord[] {
       const date = `${month}-${pad(day)}`;
       done++;
       if (fixed.suspendedMonths?.includes(Number(month.slice(5)))) continue;
+      if (fixed.status === "trial" && fixed.trialEnd && date <= fixed.trialEnd) continue;
       const price = [...(fixed.prices ?? [])].filter((item) => item.from <= date).at(-1)?.amount ?? amount;
       add({ type: "expense", date, title, amount: price, labelId: label, subcategory: sub, method: "Carta", accountId: "revolut", notes: "" },
         occurrenceId({ id: recurringId }, date, () => id("m")));
@@ -176,7 +177,7 @@ export function sampleLedger(today = todayInRome()): LedgerRecord[] {
     { from: `${first}-01-01`, amount: 999 }, { from: `${first + 4}-02-01`, amount: 1_299 }, { from: `${shiftMonth(nowMonth, -1)}-01`, amount: 1_399 }] }, first);
   monthly("spotify", "Spotify", 1_099, 8, { kind: "subscription", status: "active", share: 50 }, first + 3);
   monthly("gym", "Palestra", 4_500, 12, { kind: "subscription", status: "active", suspendedMonths: [7, 8] }, first + 5, "leisure", "Sport");
-  monthly("news", "Quotidiano digitale", 899, 20, { kind: "subscription", status: "trial", trialEnd: `${nowMonth}-28` }, current);
+  monthly("news", "Quotidiano digitale", 899, 20, { kind: "subscription", status: "trial", trialEnd: `${nowMonth}-28`, since: `${shiftMonth(nowMonth, -1)}-28` }, current);
   monthly("cloud", "Archivio cloud", 299, 25, { kind: "subscription", status: "cancelling", cancelBy: `${nowMonth}-26`, noticeDays: 15 }, first + 6);
   monthly("internet", "Internet casa", 2_490, 5, { kind: "fixed", status: "active", prices: [{ from: `${first}-01-01`, amount: 2_490 }, { from: `${first + 5}-01-01`, amount: 2_790 }] }, first, "housing", "Internet");
   {

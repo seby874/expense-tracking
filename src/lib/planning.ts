@@ -4,6 +4,7 @@ import {
 } from "./ledger";
 import { occurrence, occurrenceMovement } from "./recurring";
 import { contributed } from "./investments";
+import { freeOccurrence } from "./fixed";
 
 const DAY = 86_400_000;
 
@@ -60,6 +61,7 @@ export function forecast(ledger: Ledger, today: string, days = 30): AccountForec
     for (let n = schedule.done; n < schedule.done + 400; n++) {
       const date = occurrence(schedule, n);
       if (!date || date > horizon || (schedule.end && date > schedule.end)) break;
+      if (freeOccurrence(recurring, date)) continue;
       const value = occurrenceMovement(recurring, date, ledger);
       for (const [accountId, amount] of effects(value)) {
         if (ids.has(accountId)) events.push({ date: date < today ? today : date, title: value.title, accountId, amount, planned: true });

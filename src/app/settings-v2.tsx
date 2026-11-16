@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
-import { Archive, ArchiveRestore, Blocks, DatabaseBackup, FolderOpen, Gauge, KeyRound, Landmark, Plus, ReceiptText, Trash2, Users } from "lucide-react";
+import {
+  Archive, ArchiveRestore, BarChart3, Blocks, CalendarDays, DatabaseBackup, FolderOpen, Gauge, HandCoins, HeartPulse, KeyRound, Landmark, LifeBuoy, Plus,
+  ReceiptText, Repeat, Telescope, Timer, Trash2, Users,
+} from "lucide-react";
 import { chooseFolder, folderPermission, folderSupported, forgetFolder, savedFolder } from "../lib/backup/folder";
 import { FREQUENCY_LABELS, readBackupPrefs, saveBackupPrefs, type BackupFrequency } from "../lib/backup/schedule";
 import {
@@ -186,6 +189,11 @@ function numberValue(text: string) {
 
 // ---------------------------------------------------------------- Moduli
 
+const MODULE_ICONS: Record<ModuleKey, typeof Blocks> = {
+  tax: ReceiptText, fund: LifeBuoy, fixed: Repeat, calendar: CalendarDays, deadlines: Timer, projection: Telescope,
+  yoy: BarChart3, health: HeartPulse, refunds: HandCoins, people: Users,
+};
+
 export function ModulesPanel({ ledger, busy, demo, onCommit }: { ledger: Ledger; busy: boolean; demo: boolean; onCommit: Commit }) {
   const modules = allModules(ledger.settings);
 
@@ -208,11 +216,12 @@ export function ModulesPanel({ ledger, busy, demo, onCommit }: { ledger: Ledger;
 
   return <section className="panel settings-extra">
     <PanelHead icon={<Blocks size={18} />} title="Funzioni" subtitle="Accendi solo ciò che ti serve: quelle spente spariscono dai menu. I dati restano." />
-    <ul className="security-list">{MODULES.map((key) => <li key={key}>
+    <ul className="security-list">{MODULES.map((key) => { const Icon = MODULE_ICONS[key]; return <li key={key}>
+      <span className="security-icon"><Icon size={18} /></span>
       <div><strong>{MODULE_INFO[key].name}</strong><p>{MODULE_INFO[key].hint}</p></div>
       <label className="switch"><input type="checkbox" checked={modules[key]} disabled={busy || demo} onChange={(event) => toggle(key, event.target.checked)} />
         <span aria-hidden="true" /><span className="sr-only">{MODULE_INFO[key].name}</span></label>
-    </li>)}</ul>
+    </li>; })}</ul>
   </section>;
 }
 

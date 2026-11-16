@@ -230,7 +230,7 @@ export function ForecastPanel({ ledger, today }: { ledger: Ledger; today: string
           : <span className="forecast-min">Minimo {money(item.min)}</span>}
       </li>)}</ul>
       {events.length > 0 && <ul className="forecast-events">{events.map((event, index) => <li key={index}>
-        <span>{shortDate(event.date)}</span><strong>{event.title}</strong><small>{event.account}</small>
+        <span>{event.date.slice(8, 10)}/{event.date.slice(5, 7)}</span><strong>{event.title}</strong><small>{event.account}</small>
         <b className={event.amount < 0 ? "amount-expense" : "amount-income"}>{event.amount < 0 ? "−" : "+"}{money(Math.abs(event.amount))}</b>
       </li>)}</ul>}
       <p className="panel-note"><Info size={15} /> È una stima: parte dai saldi registrati e non conta le spese che non hai ancora inserito.</p>

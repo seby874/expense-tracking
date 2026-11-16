@@ -73,3 +73,19 @@ describe("recurring candidates", () => {
     expect(recurringCandidates(ledger, "2026-11-16", new Set(["spotify"]))).toEqual([]);
   });
 });
+
+describe("free trial", () => {
+  it("does not forecast charges before the trial ends, nor in suspended months", async () => {
+    const { freeOccurrence } = await import("../fixed");
+    const { forecast } = await import("../planning");
+    const { balance } = await import("./fixtures");
+    const trial = recurring("news", 899, { start: "2026-11-20" }, { kind: "subscription", status: "trial", trialEnd: "2026-11-28" });
+    expect(freeOccurrence(trial, "2026-11-20")).toBe(true);
+    expect(freeOccurrence(trial, "2026-12-20")).toBe(false);
+    const ledger = ledgerOf(trial, balance("revolut", "2026-10", 50_000));
+    const revolut = forecast(ledger, "2026-11-16").find((item) => item.account.id === "revolut")!;
+    expect(revolut.events.map((event) => event.date)).toEqual(["2026-12-20"].filter((date) => date <= "2026-12-16"));
+    const gym = recurring("gym", 4_500, {}, { kind: "subscription", status: "active", suspendedMonths: [8] });
+    expect(freeOccurrence(gym, "2026-08-05")).toBe(true);
+  });
+});

@@ -2,6 +2,7 @@ import { monthEnd, type Ledger } from "./ledger";
 import { occurrence, occurrenceMovement } from "./recurring";
 import { activeLines, nextCredit, CREDIT_LABELS } from "./deposit";
 import { addMonths } from "./deadlines";
+import { freeOccurrence } from "./fixed";
 
 /*
  * Calendario finanziario di un mese: movimenti con data futura, scadenze ricorrenti (rate comprese),
@@ -32,7 +33,7 @@ export function calendarEvents(ledger: Ledger, month: string, today: string): Ca
     for (let n = schedule.done; n < schedule.done + 400; n++) {
       const date = occurrence(schedule, n);
       if (!date || date > to || (schedule.end && date > schedule.end)) break;
-      if (date < from) continue;
+      if (date < from || freeOccurrence(recurring, date)) continue;
       const value = occurrenceMovement(recurring, date, ledger);
       events.push({ date, title: value.title, amount: value.amount, tone: value.type === "income" ? "in" : value.type === "transfer" ? "info" : "out", kind: "recurring" });
     }

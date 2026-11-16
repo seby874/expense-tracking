@@ -1107,7 +1107,7 @@ kbd { display: inline-block; min-width: 18px; padding: 0 5px; border: 1px solid 
 .is-negative .spark path { stroke: #c8463d; }
 .spark-zero { stroke: #c8463d55; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
 .forecast-events { display: grid; gap: 2px; margin: 12px 0 0; padding: 0; list-style: none; }
-.forecast-events li { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto auto; gap: 8px; align-items: baseline; font-size: 12px; padding: 4px 2px; }
+.forecast-events li { display: grid; grid-template-columns: max-content minmax(0, 1fr) auto auto; gap: 8px; align-items: baseline; font-size: 12px; padding: 4px 2px; }
 .forecast-events li > span { color: var(--muted); font-size: 11px; }
 .forecast-events strong { font-weight: 620; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .forecast-events small { color: var(--muted); font-size: 11px; }

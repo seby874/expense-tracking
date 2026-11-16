@@ -18,6 +18,17 @@ export const FIXED_STATUS_LABELS: Record<Fixed["status"], string> = {
   active: "Attivo", trial: "In prova", cancelling: "In disdetta", suspended: "Sospeso", cancelled: "Disdetto",
 };
 
+/**
+ * true se una scadenza del ricorrente non comporta un addebito: prova gratuita non ancora finita
+ * o mese di sospensione (es. palestra d'estate).
+ */
+export function freeOccurrence(recurring: Recurring, date: string) {
+  const fixed = recurring.value.fixed;
+  if (!fixed) return false;
+  if (fixed.status === "trial" && fixed.trialEnd && date <= fixed.trialEnd) return true;
+  return !!fixed.suspendedMonths?.includes(Number(date.slice(5, 7)));
+}
+
 /** Quante volte al mese capita, in media. */
 export function perMonth(schedule: Recurring["value"]["schedule"]) {
   if (schedule.frequency === "weekly") return 52 / 12 / schedule.every;
