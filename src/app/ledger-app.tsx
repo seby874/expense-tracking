@@ -28,6 +28,7 @@ import { QuickEntry } from "./quick-entry";
 import { ArchivePanel, BackupPanel, DeductionMapPanel, ModulesPanel, ParamsPanel, PeoplePanel, settingsAction } from "./settings-v2";
 import { FundSettingsPanel, FundTab } from "./fund";
 import { FixedView } from "./fixed";
+import { autoSkipActions, freeOccurrence } from "../lib/fixed";
 import { AnnualReportView, CalendarView, DeadlinesView, DossierPanel, HealthPanel, OverviewAlerts, ProjectionTab, YoyView } from "./planning-v2";
 import { healthChecks, healthDue, markHealthSeen, snoozeHealth, type HealthCheck } from "../lib/health";
 import { moduleOn } from "../lib/params";
@@ -262,6 +263,17 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  // Prove gratuite e mesi sospesi: le scadenze senza addebito si segnano gestite da sole.
+  const skipKey = useRef("");
+  useEffect(() => {
+    if (status !== "ready" && !demo) return;
+    const actions = autoSkipActions(ledger, today);
+    const key = actions.map((action) => (action.op === "save" ? `${action.record.id}:${action.record.version}` : "")).join("|");
+    if (!actions.length || key === skipKey.current || writing.current || form) return;
+    skipKey.current = key;
+    void commit(actions, "Scadenze senza addebito (prova gratuita o mese sospeso) saltate in automatico.", { closeForm: false, noUndo: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ledger, status, demo, form]);
   // Backup automatico: all'apertura, se è scaduto. Senza cartella (telefono) serve un tocco.
   const [backupDue, setBackupDue] = useState(false);
   const backupChecked = useRef(false);
@@ -419,7 +431,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   async function resetEverything(device: boolean) {
     const actions: Mutation[] = currentRecords.map((record) => ({
       op: "delete", kind: record.kind, id: record.id, version: record.version ?? NO_VERSION,
-      trash: record.kind === "rule" || record.kind === "import" ? {} : record.value as Record<string, unknown>,
+      trash: record.kind === "rule" || record.kind === "import" || record.kind === "archive" ? {} : record.value as Record<string, unknown>,
     }));
     const ok = await commit(actions, "Fatto: l’app riparte da zero. Tutto quello che c’era è nel cestino.", { noUndo: true });
     if (!ok) return;
@@ -699,7 +711,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       const dates = dueDates(item.recurring.value.schedule, today);
       const group: Mutation[] = [];
       for (const date of dates) {
-        if (alreadyRegistered(item.recurring, date)) continue;
+        if (alreadyRegistered(item.recurring, date) || freeOccurrence(item.recurring, date)) continue;
         group.push({ op: "save", record: { kind: "movement", id: occurrenceId(item.recurring, date, newId), version: null, value: registerValue(item.recurring, date, [...actions, ...group]) } });
       }
       group.push({ op: "save", record: { ...item.recurring, value: { ...item.recurring.value, schedule: { ...item.recurring.value.schedule, done: item.recurring.value.schedule.done + dates.length } } } });

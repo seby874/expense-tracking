@@ -34,13 +34,24 @@ export function addMonths(date: string, months: number) {
   return `${y}-${String(m + 1).padStart(2, "0")}-${String(Math.min(day, last)).padStart(2, "0")}`;
 }
 
-/** "Fatta": la ripetuta passa alla prossima data dopo oggi, la singola viene chiusa. */
+/**
+ * Prima ripetizione dopo `after` (esclusa), calcolata sempre dalla data di partenza:
+ * una scadenza al 31 torna al 31 nei mesi lunghi, il 29 febbraio torna negli anni bisestili.
+ */
+export function nextRepeat(anchor: string, repeatMonths: number, after: string) {
+  let k = 1;
+  let next = addMonths(anchor, repeatMonths);
+  while (next <= after) next = addMonths(anchor, ++k * repeatMonths);
+  return next;
+}
+
+/** "Fatta": la ripetuta passa alla prossima data dopo oggi (e dopo quella attuale), la singola viene chiusa. */
 export function completeDeadline(deadline: Deadline, today: string): Mutation {
   const { value } = deadline;
   if (!value.repeatMonths) return { op: "save", record: { ...deadline, value: { ...value, done: true } } };
-  let next = addMonths(value.date, value.repeatMonths);
-  while (next <= today) next = addMonths(next, value.repeatMonths);
-  return { op: "save", record: { ...deadline, value: { ...value, date: next, done: false } } };
+  const anchor = value.anchor ?? value.date;
+  const next = nextRepeat(anchor, value.repeatMonths, value.date > today ? value.date : today);
+  return { op: "save", record: { ...deadline, value: { ...value, anchor, date: next, done: false } } };
 }
 
 /** Scadenze da mostrare in evidenza: scadute o entro il preavviso. */

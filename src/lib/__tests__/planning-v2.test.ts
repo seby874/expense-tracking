@@ -88,3 +88,37 @@ describe("annual report", () => {
     expect(report.biggest?.value.amount).toBe(90_000);
   });
 });
+
+describe("audit fixes", () => {
+  it("keeps the anchor day of a monthly deadline (no drift to the 28th)", () => {
+    let deadline: Deadline = { kind: "deadline", id: "m", version: null, value: { title: "Affitto box", type: "contract", date: "2026-01-31", repeatMonths: 1, noticeDays: 3, notes: "" } };
+    const dates: string[] = [];
+    for (const today of ["2026-01-31", "2026-02-28", "2026-03-31", "2026-04-30"]) {
+      const action = completeDeadline(deadline, today);
+      if (action.op !== "save" || action.record.kind !== "deadline") throw new Error("expected a deadline save");
+      deadline = action.record;
+      dates.push(deadline.value.date);
+    }
+    expect(dates).toEqual(["2026-02-28", "2026-03-31", "2026-04-30", "2026-05-31"]);
+  });
+
+  it("brings a yearly 29 February deadline back in leap years", () => {
+    const leap: Deadline = { kind: "deadline", id: "l", version: null, value: { title: "X", type: "other", date: "2024-02-29", repeatMonths: 12, noticeDays: 3, notes: "" } };
+    const first = completeDeadline(leap, "2024-02-29");
+    const after = first.op === "save" && first.record.kind === "deadline" ? first.record : leap;
+    expect(after.value.date).toBe("2025-02-28");
+    const later = completeDeadline(after as Deadline, "2027-03-01");
+    expect(later.op === "save" && later.record.kind === "deadline" ? later.record.value.date : "").toBe("2028-02-29");
+  });
+
+  it("uses exactly 12 months of income for the fixed-expense share", async () => {
+    const { fixedOverview } = await import("../fixed");
+    const rent: Recurring = { kind: "recurring", id: "rent", version: null, value: {
+      template: { ...expense("2026-01-01", 100_000).value, title: "Affitto" } as Recurring["value"]["template"],
+      schedule: { frequency: "monthly", every: 1, start: "2026-01-05", end: "", done: 0 },
+    } };
+    const ledger = ledgerOf(rent, income("2025-11-05", 1_200_000), income("2026-11-10", 1_200_000));
+    // Il 05/11/2025 è fuori dagli ultimi 12 mesi al 16/11/2026: conta solo la seconda entrata (100.000 al mese).
+    expect(fixedOverview(ledger, "2026-11-16").incomeShare).toBe(1);
+  });
+});

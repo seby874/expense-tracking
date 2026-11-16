@@ -89,3 +89,14 @@ describe("free trial", () => {
     expect(freeOccurrence(gym, "2026-08-05")).toBe(true);
   });
 });
+
+describe("auto skip", () => {
+  it("marks trial and suspended occurrences as handled, stopping at the first real charge", async () => {
+    const { autoSkipActions } = await import("../fixed");
+    const trial = recurring("news", 899, { start: "2026-09-20" }, { kind: "subscription", status: "trial", trialEnd: "2026-10-28" });
+    const [action] = autoSkipActions(ledgerOf(trial), "2026-11-25");
+    expect(action.op === "save" && action.record.kind === "recurring" ? action.record.value.schedule.done : -1).toBe(2);
+    const plain = recurring("plain", 899, { start: "2026-09-20" });
+    expect(autoSkipActions(ledgerOf(plain), "2026-11-25")).toEqual([]);
+  });
+});

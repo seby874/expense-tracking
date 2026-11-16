@@ -1,6 +1,6 @@
 import { monthlyRate } from "./debts";
 import { occurrence } from "./recurring";
-import type { LoanDetails } from "./ledger";
+import { money, type LoanDetails } from "./ledger";
 import type { ParamsValue } from "./params";
 
 /*
@@ -147,7 +147,7 @@ export function simulate(input: SimInput, options: SimOptions, details: Pick<Loa
       options.newDuration > remaining ? "Rata più bassa ma più interessi in totale." : undefined));
   }
   if (options.monthlyExtra > 0) {
-    list.push(scenario("recurring-extra", `Ogni mese ${(options.monthlyExtra / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" })} in più`, input.installment + options.monthlyExtra,
+    list.push(scenario("recurring-extra", `Ogni mese ${money(options.monthlyExtra)} in più`, input.installment + options.monthlyExtra,
       run(input.residual, i, payment, input.fee, input.firstNext, options.monthlyExtra), 0, base, "Verifica nel contratto se i versamenti extra periodici sono ammessi e senza costi."));
   }
   // Estinzione totale oggi: residuo + interessi maturati dall'ultima rata (stima) + penale.
@@ -157,7 +157,7 @@ export function simulate(input: SimInput, options: SimOptions, details: Pick<Loa
   list.push({
     kind: "payoff", name: "Estinzione totale oggi", installment: 0, months: 0, end: input.date, interest: accrued, fees: 0, penalty: payoffPenalty,
     saved: base.interest - accrued, monthsSaved: base.months, residuals: [0], yearlyInterest: new Map([[Number(input.date.slice(0, 4)), accrued]]),
-    note: `Servono ${((input.residual + accrued + payoffPenalty) / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" })} (residuo + interessi maturati + penale).`,
+    note: `Servono ${money(input.residual + accrued + payoffPenalty)} (residuo + interessi maturati + penale).`,
   });
   if (options.newTan !== null && options.newTan >= 0) {
     const j = monthlyRate(options.newTan);

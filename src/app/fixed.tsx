@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { AlertTriangle, Plus, Repeat, Settings2, TrendingDown, TrendingUp, X } from "lucide-react";
-import { MONTHS, money, parseMoney, shortDate, yearMonths, type Fixed, type Ledger, type Movement, type Mutation, type Recurring } from "../lib/ledger";
+import { MONTHS, isDiscreet, money, parseMoney, shortDate, yearMonths, type Fixed, type Ledger, type Movement, type Mutation, type Recurring } from "../lib/ledger";
 import {
   FIXED_KIND_LABELS, FIXED_STATUS_LABELS, competenceByMonth, fixedOverview, nextBillEstimate, occurrencesOf, recurringCandidates, type FixedItem,
 } from "../lib/fixed";
@@ -69,7 +69,7 @@ function FixedEditor({ item, today, busy, onCommit, onClose }: { item: FixedItem
         {Object.entries(FIXED_KIND_LABELS).map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select></label>
       <label>Stato<select value={status} onChange={(event) => setStatus(event.target.value as Fixed["status"])}>
         {Object.entries(FIXED_STATUS_LABELS).map(([key, name]) => <option key={key} value={key}>{name}</option>)}</select></label>
-      <label>Nuovo prezzo € <span className="optional">facoltativo</span><input inputMode="decimal" placeholder={euro(item.price)} value={priceAmount} onChange={(event) => setPriceAmount(event.target.value)} /></label>
+      <label>Nuovo prezzo € <span className="optional">facoltativo</span><input inputMode="decimal" placeholder={isDiscreet() ? "" : euro(item.price)} value={priceAmount} onChange={(event) => setPriceAmount(event.target.value)} /></label>
       <label>…in vigore dal<input type="date" value={priceFrom} onChange={(event) => setPriceFrom(event.target.value)} /></label>
     </div>
     <details className="extra-options" open={!!(trialEnd || cancelBy || suspended.length || share !== "100")}><summary><Settings2 size={14} /> Opzioni avanzate</summary>

@@ -13,7 +13,10 @@ export function removeOfflineShell() {
   if (!("serviceWorker" in navigator) || import.meta.env.DEV) return;
   window.addEventListener("load", () => {
     void navigator.serviceWorker.getRegistrations()
-      .then((registrations) => Promise.all(registrations.map((registration) => registration.unregister())))
+      // Solo il service worker di questa app: su github.io lo stesso indirizzo ospita anche altri siti.
+      .then((registrations) => Promise.all(registrations
+        .filter((registration) => registration.scope === new URL("./", window.location.href).href)
+        .map((registration) => registration.unregister())))
       .then(clearCaches)
       .catch((error) => console.warn("Rimozione della copia offline non riuscita:", error));
   });

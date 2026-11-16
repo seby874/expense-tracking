@@ -1,4 +1,4 @@
-import { accountBalances, balanceGaps, shiftMonth, type Account, type Ledger } from "./ledger";
+import { accountBalances, balanceGaps, money, shiftMonth, type Account, type Ledger } from "./ledger";
 import { dueItems } from "./recurring";
 import { estimateReads, archivableYears } from "./archive";
 import { fundStatus } from "./fund";
@@ -96,7 +96,7 @@ export function healthChecks(ledger: Ledger, today: string, input: HealthInput):
   for (const debt of ledger.accounts.filter((account) => account.value.type === "debt" && !account.value.archived)) {
     const status = debtStatus(ledger, debt, month);
     if (status.endDate && status.endDate < today && (status.residual ?? 0) > 0) {
-      add({ id: `debt-${debt.id}`, level: "warn", title: `${debt.value.name}: la fine prevista è passata ma il residuo è ${(status.residual! / 100).toLocaleString("it-IT", { style: "currency", currency: "EUR" })}`, detail: "Correggi il residuo o il piano del finanziamento.", account: debt, action: "balance" });
+      add({ id: `debt-${debt.id}`, level: "warn", title: `${debt.value.name}: la fine prevista è passata ma il residuo è ${money(status.residual)}`, detail: "Correggi il residuo o il piano del finanziamento.", account: debt, action: "balance" });
     }
   }
 

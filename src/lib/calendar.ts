@@ -1,7 +1,7 @@
 import { monthEnd, type Ledger } from "./ledger";
 import { occurrence, occurrenceMovement } from "./recurring";
 import { activeLines, nextCredit, CREDIT_LABELS } from "./deposit";
-import { addMonths } from "./deadlines";
+import { nextRepeat } from "./deadlines";
 import { freeOccurrence } from "./fixed";
 
 /*
@@ -16,6 +16,10 @@ export type CalendarEvent = {
   tone: "in" | "out" | "info";
   kind: "movement" | "recurring" | "credit" | "line" | "fixed" | "deadline";
 };
+
+function addDays(date: string, days: number) {
+  return new Date(Date.parse(date) + days * 86_400_000).toISOString().slice(0, 10);
+}
 
 export function calendarEvents(ledger: Ledger, month: string, today: string): CalendarEvent[] {
   const from = `${month}-01`;
@@ -53,7 +57,7 @@ export function calendarEvents(ledger: Ledger, month: string, today: string): Ca
   for (const deadline of ledger.deadlines) {
     if (deadline.value.done) continue;
     let date = deadline.value.date;
-    if (deadline.value.repeatMonths) while (date < from) date = addMonths(date, deadline.value.repeatMonths);
+    if (deadline.value.repeatMonths && date < from) date = nextRepeat(deadline.value.anchor ?? deadline.value.date, deadline.value.repeatMonths, addDays(from, -1));
     if (inMonth(date)) events.push({ date, title: deadline.value.title, amount: null, tone: "info", kind: "deadline" });
   }
   // Un vincolo può comparire due volte (attivo e in scadenza): si tiene una sola voce per data e titolo.

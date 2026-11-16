@@ -55,7 +55,7 @@ export function YoyView({ ledger, today }: { ledger: Ledger; today: string }) {
 
   return <>
     <section className="panel">
-      <PanelTitle title="Anno su anno" subtitle={cutoff ? `Dal 1° gennaio al ${cutoff.split("-").reverse().join("/")} di entrambi gli anni` : "Anni interi"}
+      <PanelTitle title="Anno su anno" subtitle={`${cutoff ? `Dal 1° gennaio al ${cutoff.split("-").reverse().join("/")} di entrambi gli anni` : "Anni interi"} · anno solare, anche con l’inizio del mese personalizzato`}
         action={<span className="archived-actions">
           <select aria-label="Primo anno" value={a} onChange={(event) => setA(Number(event.target.value))}>{years.map((year) => <option key={year} value={year}>{year}</option>)}</select>
           <span>contro</span>
@@ -297,7 +297,7 @@ export function AnnualReportView({ ledger, today, year: initialYear }: { ledger:
   const { kpi, previous } = report;
   if (!years.length) return <section className="panel"><Empty icon={<FileText size={22} />} title="Nessun anno chiuso">Il report di un anno è disponibile da gennaio dell’anno dopo.</Empty></section>;
   return <section className="panel print-area annual-report">
-    <PanelTitle title={`Il tuo ${year}`} subtitle="Riepilogo dell’anno da stampare o salvare in PDF e conservare con il backup."
+    <PanelTitle title={`Il tuo ${year}`} subtitle="Riepilogo dell’anno solare (1° gennaio – 31 dicembre) da stampare o salvare in PDF e conservare con il backup."
       action={<span className="archived-actions">
         <select aria-label="Anno" value={year} onChange={(event) => setYear(Number(event.target.value))}>{years.map((item) => <option key={item} value={item}>{item}</option>)}</select>
         <button type="button" className="button secondary small" onClick={() => window.print()}><Printer size={15} /> Stampa / PDF</button></span>} />

@@ -107,9 +107,16 @@ export function planRestore(text: string, records: LedgerRecord[]): RestorePlan 
     ? (data as { records?: unknown }).records : null;
   if (!Array.isArray(list)) { plan.error = "Il file non è un backup di Expense Tracking."; return plan; }
   const current = new Map(records.map((record) => [`${record.kind}:${record.id}`, record]));
+  // Gli anni archiviati nel backup tornano come voci normali: l'archivio si ricrea solo con «Archivia».
+  const expanded: unknown[] = [];
   for (const item of list) {
     const parsed = recordSchema.safeParse(item);
-    if (!parsed.success) { plan.invalid++; continue; }
+    if (parsed.success && parsed.data.kind === "archive") expanded.push(...parsed.data.value.records);
+    else expanded.push(item);
+  }
+  for (const item of expanded) {
+    const parsed = recordSchema.safeParse(item);
+    if (!parsed.success || parsed.data.kind === "archive") { plan.invalid++; continue; }
     const record = parsed.data;
     const year = record.kind === "movement" ? Number(record.value.date.slice(0, 4)) : record.kind === "balance" ? Number(record.value.month.slice(0, 4)) : null;
     if (year !== null && archived.has(year)) { skipped.add(year); continue; }

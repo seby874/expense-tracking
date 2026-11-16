@@ -40,7 +40,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const FULL_SYNC_EVERY_MS = 30 * DAY_MS;
 // Più dell'intervallo della rilettura completa: ogni dispositivo ha già visto la lapide prima che sparisca.
 const TOMBSTONE_DAYS = 60;
-const BATCH_SIZE = 400; // Firestore accetta al massimo 500 scritture per batch.
+const BATCH_SIZE = 400; // Firestore accetta al massimo 500 scritture per batch (aggiornamenti e pulizie).
 // Fino a questo numero di voci si scrive con una transazione che controlla i conflitti tra dispositivi
 // (Firestore accetta al massimo 500 scritture per transazione).
 export const TRANSACTION_LIMIT = 450;
@@ -165,35 +165,6 @@ async function writeChecked(collectionRef: CollectionReference, actions: Mutatio
   });
 }
 
-/** Scritture a blocchi, senza controllo dei conflitti: per ripristini e azzeramenti con molte voci. */
-async function writeInBatches(collectionRef: CollectionReference, actions: Mutation[], onProgress?: (done: number, total: number) => void) {
-  const saved: LedgerRecord[] = [];
-  for (let start = 0; start < actions.length; start += BATCH_SIZE) {
-    const batch = writeBatch(db);
-    const chunk: LedgerRecord[] = [];
-    for (const action of actions.slice(start, start + BATCH_SIZE)) {
-      const ref = docRef(collectionRef, action);
-      if (action.op === "delete") {
-        batch.set(ref, tombstone(action, action.trash));
-      } else {
-        const record = { ...action.record, version: newId() };
-        batch.set(ref, stamped(record));
-        chunk.push(record);
-      }
-    }
-    try {
-      await batch.commit();
-    } catch (error) {
-      console.warn("Salvataggio a blocchi interrotto:", error);
-      // Le voci dei blocchi precedenti sono già salvate: ripetere l'operazione completa il lavoro.
-      throw new Error(`Salvataggio interrotto dopo ${start.toLocaleString("it-IT")} voci su ${actions.length.toLocaleString("it-IT")}. Controlla la connessione, ricarica e ripeti l’operazione.`);
-    }
-    saved.push(...chunk);
-    onProgress?.(Math.min(start + BATCH_SIZE, actions.length), actions.length);
-  }
-  return saved;
-}
-
 /**
  * Salva una o più modifiche e restituisce le voci salvate con la nuova versione.
  * Fino a TRANSACTION_LIMIT voci il salvataggio è tutto-o-niente e controlla i conflitti.
@@ -202,5 +173,17 @@ export async function writeLedger(actions: Mutation[], onProgress?: (done: numbe
   await firestoreReady;
   const collectionRef = ledgerCollection();
   if (actions.length <= TRANSACTION_LIMIT) return writeChecked(collectionRef, actions);
-  return writeInBatches(collectionRef, actions, onProgress);
+  // Molte voci (archivio, ripristino, azzeramento): blocchi in ordine, ognuno in una transazione con controllo dei conflitti.
+  const saved: LedgerRecord[] = [];
+  for (let start = 0; start < actions.length; start += TRANSACTION_LIMIT) {
+    try {
+      saved.push(...await writeChecked(collectionRef, actions.slice(start, start + TRANSACTION_LIMIT)));
+    } catch (error) {
+      console.warn("Salvataggio a blocchi interrotto:", error);
+      const reason = error instanceof Error ? error.message : "errore di rete";
+      throw new Error(`Salvataggio interrotto dopo ${start.toLocaleString("it-IT")} voci su ${actions.length.toLocaleString("it-IT")} (${reason}). Ricarica e ripeti l’operazione: riprende da dove si è fermata.`);
+    }
+    onProgress?.(Math.min(start + TRANSACTION_LIMIT, actions.length), actions.length);
+  }
+  return saved;
 }

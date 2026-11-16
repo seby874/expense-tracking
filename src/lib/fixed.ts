@@ -1,5 +1,5 @@
-import { expenseParts, shiftMonth, type Fixed, type Ledger, type Movement, type Recurring } from "./ledger";
-import { nextDate } from "./recurring";
+import { expenseParts, shiftMonth, type Fixed, type Ledger, type Movement, type Mutation, type Recurring } from "./ledger";
+import { dueDates, nextDate } from "./recurring";
 
 /*
  * Spese fisse, abbonamenti e bollette.
@@ -27,6 +27,24 @@ export function freeOccurrence(recurring: Recurring, date: string) {
   if (!fixed) return false;
   if (fixed.status === "trial" && fixed.trialEnd && date <= fixed.trialEnd) return true;
   return !!fixed.suspendedMonths?.includes(Number(date.slice(5, 7)));
+}
+
+/**
+ * Scadenze arrivate che non comportano addebiti (prova gratuita, mesi sospesi): si segnano gestite da sole,
+ * così non vengono proposte da registrare. Si fermano alla prima scadenza vera.
+ */
+export function autoSkipActions(ledger: Ledger, today: string): Mutation[] {
+  const actions: Mutation[] = [];
+  for (const recurring of ledger.recurring) {
+    if (recurring.value.paused || !recurring.value.fixed) continue;
+    let skip = 0;
+    for (const date of dueDates(recurring.value.schedule, today)) {
+      if (!freeOccurrence(recurring, date)) break;
+      skip++;
+    }
+    if (skip) actions.push({ op: "save", record: { ...recurring, value: { ...recurring.value, schedule: { ...recurring.value.schedule, done: recurring.value.schedule.done + skip } } } });
+  }
+  return actions;
 }
 
 /** Quante volte al mese capita, in media. */
@@ -114,7 +132,9 @@ export function fixedOverview(ledger: Ledger, today: string) {
   const items = ledger.recurring.filter(({ value }) => value.template.type === "expense" || value.template.type === "repayment")
     .map((recurring) => fixedItem(ledger, recurring, today));
   const monthly = items.reduce((sum, item) => sum + item.monthly, 0);
-  const lastYear = ledger.movements.filter(({ value }) => value.type === "income" && value.date > shiftMonth(today.slice(0, 7), -12) && value.date <= today);
+  // Ultimi 12 mesi esatti: dallo stesso giorno dell'anno scorso (escluso) a oggi.
+  const yearAgo = `${shiftMonth(today.slice(0, 7), -12)}${today.slice(7)}`;
+  const lastYear = ledger.movements.filter(({ value }) => value.type === "income" && value.date > yearAgo && value.date <= today);
   const income = lastYear.reduce((sum, { value }) => sum + value.amount, 0) / 12;
   return { items, monthly, yearly: monthly * 12, incomeShare: income > 0 ? monthly / income : null };
 }

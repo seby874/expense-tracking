@@ -105,7 +105,7 @@ export function readZip(bytes: Uint8Array): ZipEntry[] {
   let position = view.getUint32(endOffset + 16, true);
   const entries: ZipEntry[] = [];
   for (let n = 0; n < count; n++) {
-    if (view.getUint32(position, true) !== 0x02014b50) throw new Error("Archivio .zip danneggiato.");
+    if (position + 46 > bytes.length || view.getUint32(position, true) !== 0x02014b50) throw new Error("Archivio .zip danneggiato.");
     const method = view.getUint16(position + 10, true);
     const size = view.getUint32(position + 20, true);
     const nameLength = view.getUint16(position + 28, true);
@@ -114,10 +114,15 @@ export function readZip(bytes: Uint8Array): ZipEntry[] {
     const localOffset = view.getUint32(position + 42, true);
     const name = decoder.decode(bytes.subarray(position + 46, position + 46 + nameLength));
     if (method !== 0) throw new Error("Questo .zip è compresso: usa il file creato dall'app, senza modificarlo.");
+    const crc = view.getUint32(position + 16, true);
+    if (localOffset + 30 > bytes.length || view.getUint32(localOffset, true) !== 0x04034b50) throw new Error("Archivio .zip danneggiato.");
     const localNameLength = view.getUint16(localOffset + 26, true);
     const localExtraLength = view.getUint16(localOffset + 28, true);
     const start = localOffset + 30 + localNameLength + localExtraLength;
-    entries.push({ name, data: bytes.slice(start, start + size) });
+    if (start + size > bytes.length) throw new Error("Archivio .zip incompleto: il file è stato troncato.");
+    const data = bytes.slice(start, start + size);
+    if (crc32(data) !== crc) throw new Error(`Archivio .zip danneggiato (${name}).`);
+    entries.push({ name, data });
     position += 46 + nameLength + extraLength + commentLength;
   }
   return entries;

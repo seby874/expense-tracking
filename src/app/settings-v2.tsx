@@ -4,7 +4,7 @@ import {
   ReceiptText, Repeat, Telescope, Timer, Trash2, Users,
 } from "lucide-react";
 import { chooseFolder, folderPermission, folderSupported, forgetFolder, savedFolder } from "../lib/backup/folder";
-import { FREQUENCY_LABELS, readBackupPrefs, saveBackupPrefs, type BackupFrequency } from "../lib/backup/schedule";
+import { FREQUENCY_LABELS, passwordMissing, readBackupPrefs, saveBackupPrefs, type BackupFrequency } from "../lib/backup/schedule";
 import {
   MODULES, NO_VERSION, isDiscreet, newId, parseMoney, subcategoryList,
   type Label, type Ledger, type ModuleKey, type Mutation, type Params, type Person,
@@ -90,9 +90,9 @@ export function BackupPanel({ busy, demo, onBackupNow }: { busy: boolean; demo: 
   }
   useEffect(() => { void refreshFolder(); }, []);
 
-  function update(next: typeof prefs) {
+  function update(next: typeof prefs, clearEncryption = false) {
     setPrefs(next);
-    saveBackupPrefs(next);
+    saveBackupPrefs(next, clearEncryption);
   }
 
   async function pick() {
@@ -147,7 +147,7 @@ export function BackupPanel({ busy, demo, onBackupNow }: { busy: boolean; demo: 
         </li>
         <li>
           <span className="security-icon"><KeyRound size={18} /></span>
-          <div><strong>{prefs.password ? "Backup cifrati con password" : "Backup non cifrati"}</strong>
+          <div><strong>{prefs.password ? "Backup cifrati con password" : passwordMissing(prefs) ? "Password dei backup mancante: i backup sono fermi" : "Backup non cifrati"}</strong>
             <p>{prefs.password
               ? "Senza la password i backup non si aprono in alcun modo. I backup vecchi restano apribili con la password con cui sono stati creati."
               : "Con una password il file diventa .etbackup (AES-256): utile se la cartella è sincronizzata su Drive. La password resta solo in questo browser."}</p>
@@ -159,7 +159,7 @@ export function BackupPanel({ busy, demo, onBackupNow }: { busy: boolean; demo: 
             </div>}</div>
           {!editing && <span className="archived-actions">
             <button type="button" className="button secondary small" onClick={() => { setEditing(true); setMessage(""); }}>{prefs.password ? "Cambia" : "Imposta"}</button>
-            {prefs.password && <button type="button" className="text-button" onClick={() => { update({ ...prefs, password: "" }); setMessage("Password rimossa: i prossimi backup non saranno cifrati."); }}>Rimuovi</button>}
+            {(prefs.password || passwordMissing(prefs)) && <button type="button" className="text-button" onClick={() => { update({ ...prefs, password: "" }, true); setMessage("Password rimossa: i prossimi backup non saranno cifrati."); }}>{prefs.password ? "Rimuovi" : "Non cifrare più"}</button>}
           </span>}
         </li>
       </ul>

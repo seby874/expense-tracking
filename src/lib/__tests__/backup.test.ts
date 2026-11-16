@@ -78,3 +78,37 @@ describe("backup content", () => {
     expect(sql).toContain("'L''idraulico'");
   });
 });
+
+describe("audit fixes", () => {
+  it("rejects a corrupted or truncated zip", () => {
+    const zip = createZip([textEntry("dati/backup.json", "{\"a\":1}")]);
+    const corrupted = zip.slice();
+    corrupted[30 + "dati/backup.json".length + 2] ^= 0xff; // un byte del contenuto
+    expect(() => readZip(corrupted)).toThrow("danneggiato");
+  });
+
+  it("restores the movements inside archived years of an old backup as normal entries", async () => {
+    const { archiveActions } = await import("../archive");
+    const old = expense("2020-03-10", 1_000);
+    const archive = archiveActions(ledgerOf(old), 2020).flatMap((action) => (action.op === "save" ? [action.record] : []));
+    const { backupJson } = await import("../backup/export");
+    const plan = planRestore(backupJson(archive), []);
+    expect(plan.mutations.map((action) => (action.op === "save" ? action.record.kind : ""))).toEqual(["movement"]);
+  });
+
+  it("refuses to make an unencrypted backup when the password disappeared", async () => {
+    const { makeBackup, saveBackupPrefs, passwordMissing } = await import("../backup/schedule");
+    const store = new Map<string, string>();
+    const local = { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => { store.set(key, value); }, removeItem: (key: string) => { store.delete(key); } };
+    (globalThis as unknown as { window: unknown }).window = { localStorage: local };
+    saveBackupPrefs({ frequency: "daily", password: "password-lunga", last: null });
+    store.set("et-backup-prefs", "{rotto");
+    expect(passwordMissing({ frequency: "daily", password: "", last: null })).toBe(true);
+    await expect(makeBackup([], ledgerOf(), "", "2026-11-16")).rejects.toThrow("password");
+    saveBackupPrefs({ frequency: "weekly", password: "", last: null });
+    expect(passwordMissing({ frequency: "weekly", password: "", last: null })).toBe(true);
+    saveBackupPrefs({ frequency: "weekly", password: "", last: null }, true);
+    expect(passwordMissing({ frequency: "weekly", password: "", last: null })).toBe(false);
+    delete (globalThis as unknown as { window?: unknown }).window;
+  });
+});

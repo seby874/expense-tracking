@@ -54,7 +54,8 @@ ${list}
 ### Database su un server (PostgreSQL, MySQL/MariaDB, SQLite)
 - SQLite: \`sqlite3 expense.db < database/dati.sql\`
 - PostgreSQL: \`psql -d expense -f database/dati.sql\`
-- MySQL/MariaDB: \`mysql expense < database/dati.sql\`
+- MySQL/MariaDB: \`mysql --init-command="SET SESSION sql_mode='NO_BACKSLASH_ESCAPES'" expense < database/dati.sql\`
+  (l'opzione serve perché MySQL tratta le barre rovesciate \\ nei testi in modo diverso dallo standard SQL)
 
 Il file crea le tabelle \`voci\` (tutte le voci in JSON), \`movimenti\`, \`saldi\`, \`conti\`, \`categorie\`.
 Esempi di interrogazioni:

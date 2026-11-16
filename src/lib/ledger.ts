@@ -331,6 +331,8 @@ export const deadlineValueSchema = z.object({
   date: dateSchema,
   // Ripetizione in mesi (0 = una volta).
   repeatMonths: z.number().int().min(0).max(240),
+  // Data di partenza delle ripetizioni: il giorno resta quello (il 31 torna 31 dopo febbraio).
+  anchor: dateSchema.optional(),
   noticeDays: z.number().int().min(0).max(400),
   person: id.optional(),
   movement: id.optional(),
