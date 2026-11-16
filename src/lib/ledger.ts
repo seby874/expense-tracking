@@ -9,6 +9,8 @@ export const ENTRY_TYPES = { expense: "Spesa", income: "Entrata", transfer: "Tra
 export const INTEREST_LABEL = "interest";
 export const COLORS = ["#0b8277", "#4a6da5", "#d48351", "#7d65ae", "#c45e78", "#3e8da1", "#a07243", "#667fa6", "#c37c3a", "#77799b", "#608b73", "#c9a23a", "#5e8f3c", "#b05a9a", "#3f9e9a", "#8a6b52"];
 export const MAX_CENTS = 99_999_999_999;
+/** Versione segnaposto per eliminare una voce mai salvata sul cloud (versione null). */
+export const NO_VERSION = "00000000-0000-4000-8000-000000000000";
 
 const id = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/);
 const name = z.string().trim().min(1).max(100);
@@ -264,11 +266,9 @@ export type Goal = Extract<LedgerRecord, { kind: "goal" }>;
 export type Settings = Extract<LedgerRecord, { kind: "setting" }>;
 export const DEFAULT_SETTINGS: Settings["value"] = { periodStart: 1 };
 export type Part = z.infer<typeof partSchema>;
-export type MovementOrigin = z.infer<typeof originSchema>;
 export type Schedule = Recurring["value"]["schedule"];
 export type DebtDetails = z.infer<typeof debtDetailsSchema>;
 export type LoanDetails = Extract<DebtDetails, { kind: "loan" }>;
-export type InvestDetails = z.infer<typeof investDetailsSchema>;
 export type MovementType = Movement["value"]["type"];
 export type Mutation = z.infer<typeof mutationSchema>;
 
@@ -472,6 +472,13 @@ export function isDiscreet() { return discreet; }
 export function money(value: number | null) {
   if (value === null) return "—";
   return discreet ? "••• €" : euros.format(value / 100);
+}
+
+const wholeEuros = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+
+/** Come money(), arrotondato all'euro (per i testi riassuntivi). */
+export function wholeMoney(value: number) {
+  return discreet ? "••• €" : wholeEuros.format(Math.round(value / 100));
 }
 
 export function rate(value: number | null) {

@@ -1,10 +1,10 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Archive, ArchiveRestore, Calculator, HandCoins, Trash2, Users } from "lucide-react";
 import {
-  ASSET_CLASSES, INTEREST_LABEL, activeLabels, balanceId, money, newId, parseMoney, sameName, shortDate,
+  NO_VERSION, ASSET_CLASSES, INTEREST_LABEL, activeLabels, balanceId, money, newId, parseMoney, sameName, shiftMonth, shortDate,
   type Account, type DebtDetails, type Ledger, type LoanDetails, type Mutation,
 } from "../lib/ledger";
-import { amortization, initialSnapshot, linkedRecurring, loanInstallment, monthlyRate } from "../lib/debts";
+import { amortization, initialSnapshot, installmentsPaid, linkedRecurring, loanInstallment, monthlyRate } from "../lib/debts";
 import { occurrence } from "../lib/recurring";
 import { FormError, Submit, field } from "./ledger-forms";
 
@@ -201,7 +201,7 @@ export function DebtEditor({ ledger, id, initial, busy, error, onCommit, onArchi
 
     // Rate proposte ogni mese (movimenti ricorrenti di tipo Rata).
     if (details.kind === "loan") {
-      const paid = details.paidBefore + ledger.movements.filter(({ value: item }) => item.type === "repayment" && item.debtId === id).length;
+      const paid = installmentsPaid(ledger, id, details.paidBefore);
       const template = {
         type: "repayment" as const, date: details.firstDate, title: `Rata ${name}`.slice(0, 160), amount: details.installment,
         principal: details.installment, interest: 0, debtId: id, accountId, labelId: details.interestLabelId, notes: "",
@@ -216,7 +216,7 @@ export function DebtEditor({ ledger, id, initial, busy, error, onCommit, onArchi
           template, schedule: { frequency: "monthly", every: 1, start: details.firstDate, end, done: paid },
         } } });
       } else if (!repeat && recurring) {
-        actions.push({ op: "delete", kind: "recurring", id: recurring.id, version: recurring.version ?? "00000000-0000-4000-8000-000000000000" });
+        actions.push({ op: "delete", kind: "recurring", id: recurring.id, version: recurring.version ?? NO_VERSION });
       }
     }
     onCommit(actions, initial ? "Debito aggiornato." : details.kind === "loan" ? "Finanziamento creato." : "Debito creato.");
@@ -314,8 +314,7 @@ export function CreditEditor({ ledger, id, initial, busy, error, onCommit, onArc
       const from = field(data, "from");
       // Si parte da zero il mese prima: il prestito è un trasferimento dal conto (o un saldo iniziale).
       const month = start.slice(0, 7);
-      const [year, value] = month.split("-").map(Number);
-      const before = value === 1 ? `${year - 1}-12` : `${year}-${String(value - 1).padStart(2, "0")}`;
+      const before = shiftMonth(month, -1);
       actions.push({ op: "save", record: { kind: "balance", id: balanceId(id, before), version: null, value: { accountId: id, month: before, amount: from ? 0 : amount } } });
       if (from && amount > 0) {
         actions.push({ op: "save", record: { kind: "movement", id: newId(), version: null, value: {

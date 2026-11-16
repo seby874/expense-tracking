@@ -1,13 +1,10 @@
 import {
   collection,
   doc,
-  getDocsFromCache,
   getDocsFromServer,
   query,
   runTransaction,
   serverTimestamp,
-  setDoc,
-  waitForPendingWrites,
   where,
   writeBatch,
   type CollectionReference,
@@ -15,14 +12,9 @@ import {
   type QuerySnapshot,
   type Timestamp,
 } from "firebase/firestore";
-import { auth, db, firestoreReady, offlineEnabled } from "./firebase";
-import { LedgerMirror, type RawDoc, type TrashItem } from "./ledger-sync";
-import {
-  newId,
-  recordSchema,
-  type LedgerRecord,
-  type Mutation,
-} from "./ledger";
+import { auth, db, firestoreReady } from "./firebase";
+import { LedgerMirror, planWrite, type RawDoc, type TrashItem } from "./ledger-sync";
+import { newId, type LedgerRecord, type Mutation } from "./ledger";
 
 function ledgerCollection() {
   const user = auth.currentUser;
@@ -38,37 +30,25 @@ function ledgerCollection() {
  *   valore più recente già visto e al server chiede solo i documenti più nuovi
  *   (minimo 1 lettura per richiesta, anche se non è cambiato nulla).
  * - Le eliminazioni sono "lapidi" (`deleted: true`): così anche loro arrivano
- *   agli altri dispositivi con la lettura incrementale.
- * - Con "Uso offline" la copia resta nel browser anche chiudendo l'app, quindi
- *   l'intero archivio si scarica solo la prima volta su ogni dispositivo.
- *   Senza, la copia vive in memoria: si risparmia finché la pagina resta aperta.
- * - Ogni 30 giorni si rilegge tutto, per sicurezza.
+ *   agli altri dispositivi con la lettura incrementale. Le lapidi vuote più
+ *   vecchie di TOMBSTONE_DAYS giorni si cancellano davvero, per non rileggerle.
+ * - La copia vive in memoria: all'apertura si scarica l'archivio, poi solo le modifiche.
+ * - Se la pagina resta aperta a lungo, ogni 30 giorni si rilegge tutto, per sicurezza.
  */
 
-const FULL_SYNC_EVERY_MS = 30 * 24 * 60 * 60 * 1000;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const FULL_SYNC_EVERY_MS = 30 * DAY_MS;
+// Più dell'intervallo della rilettura completa: ogni dispositivo ha già visto la lapide prima che sparisca.
+const TOMBSTONE_DAYS = 60;
 const BATCH_SIZE = 400; // Firestore accetta al massimo 500 scritture per batch.
+// Fino a questo numero di voci si scrive con una transazione che controlla i conflitti tra dispositivi
+// (Firestore accetta al massimo 500 scritture per transazione).
+export const TRANSACTION_LIMIT = 450;
 
-let mirror: { uid: string; data: LedgerMirror<Timestamp> } | null = null;
+let mirror: { uid: string; data: LedgerMirror<Timestamp>; fullSyncAt: number } | null = null;
 
 function rawDocs(snapshot: QuerySnapshot): RawDoc[] {
   return snapshot.docs.map((entry) => ({ id: entry.id, data: entry.data() }));
-}
-
-function fullSyncKey(uid: string) {
-  return `et-full-sync:${uid}`;
-}
-
-function fullSyncDue(uid: string) {
-  try {
-    const last = Number(window.localStorage.getItem(fullSyncKey(uid)));
-    return !(last > 0) || Date.now() - last > FULL_SYNC_EVERY_MS;
-  } catch {
-    return true;
-  }
-}
-
-function markFullSync(uid: string) {
-  try { window.localStorage.setItem(fullSyncKey(uid), String(Date.now())); } catch {}
 }
 
 /** Documento che sostituisce una voce eliminata: conserva il contenuto per il cestino (vuoto = eliminazione definitiva). */
@@ -82,47 +62,12 @@ function stamped<T extends object>(record: T) {
   return { ...record, updatedAt: serverTimestamp() };
 }
 
-function isOffline() {
-  return typeof navigator !== "undefined" && navigator.onLine === false;
+function docRef(collectionRef: CollectionReference, action: Mutation): DocumentReference {
+  const target = action.op === "save" ? action.record : action;
+  return doc(collectionRef, `${target.kind}:${target.id}`);
 }
 
-// ---- Stato della sincronizzazione (scritture in attesa quando si è offline) ----
-
-let pending = 0;
-const listeners = new Set<(pending: number) => void>();
-
-function setPending(next: number) {
-  pending = Math.max(0, next);
-  for (const listener of listeners) listener(pending);
-}
-
-export function pendingWrites() {
-  return pending;
-}
-
-export function subscribePending(listener: (pending: number) => void) {
-  listeners.add(listener);
-  listener(pending);
-  return () => { listeners.delete(listener); };
-}
-
-/** Con l'uso offline una scrittura senza rete resta in coda: non si aspetta il server. */
-function track(write: Promise<unknown>) {
-  setPending(pending + 1);
-  write
-    .catch((error) => console.warn("Sincronizzazione non riuscita:", error))
-    .finally(() => setPending(pending - 1));
-}
-
-/** Attende che le scritture in coda arrivino al server, al massimo per `ms` millisecondi. */
-export async function flushPending(ms = 4000) {
-  if (!pending) return true;
-  const done = waitForPendingWrites(db).then(() => true, () => false);
-  const timeout = new Promise<boolean>((resolve) => window.setTimeout(() => resolve(false), ms));
-  return Promise.race([done, timeout]);
-}
-
-// ---- Lettura e scrittura ----
+// ---- Lettura ----
 
 /** Aggiunge `updatedAt` ai documenti salvati dalle versioni precedenti (una volta sola). */
 async function stampLegacy(ref: CollectionReference, ids: string[]) {
@@ -135,7 +80,25 @@ async function stampLegacy(ref: CollectionReference, ids: string[]) {
   }
 }
 
-async function fullSync(uid: string, ref: CollectionReference, data: LedgerMirror<Timestamp>) {
+/** Cancella dal server le lapidi vuote più vecchie di TOMBSTONE_DAYS giorni (richiede le regole aggiornate). */
+async function purgeTombstones(ref: CollectionReference, data: LedgerMirror<Timestamp>) {
+  const stale = data.staleTombstones(Date.now() - TOMBSTONE_DAYS * DAY_MS);
+  if (!stale.length) return;
+  try {
+    for (let start = 0; start < stale.length; start += BATCH_SIZE) {
+      const ids = stale.slice(start, start + BATCH_SIZE);
+      const batch = writeBatch(db);
+      for (const id of ids) batch.delete(doc(ref, id));
+      await batch.commit();
+      data.forget(ids);
+    }
+  } catch (error) {
+    // Di solito: regole Firestore non ancora aggiornate. Non è grave: si riproverà alla prossima apertura.
+    console.warn("Pulizia delle voci eliminate non riuscita: pubblica le nuove regole Firestore.", error);
+  }
+}
+
+async function fullSync(ref: CollectionReference, data: LedgerMirror<Timestamp>) {
   data.reset();
   data.apply(rawDocs(await getDocsFromServer(ref)));
 
@@ -144,14 +107,15 @@ async function fullSync(uid: string, ref: CollectionReference, data: LedgerMirro
       await stampLegacy(ref, [...data.legacy]);
     } catch (error) {
       // Di solito: regole Firestore non ancora aggiornate. L'app funziona lo
-      // stesso, ma finché non riesce rilegge tutto a ogni apertura.
+      // stesso, ma finché non riesce rilegge tutto a ogni sincronizzazione.
       console.warn("Aggiornamento dei documenti non riuscito: pubblica le nuove regole Firestore.", error);
-      return;
+      return false;
     }
     data.reset();
     data.apply(rawDocs(await getDocsFromServer(ref)));
   }
-  markFullSync(uid);
+  void purgeTombstones(ref, data);
+  return true;
 }
 
 export async function readLedger(): Promise<LedgerSnapshot> {
@@ -159,109 +123,84 @@ export async function readLedger(): Promise<LedgerSnapshot> {
   const ref = ledgerCollection();
   const uid = auth.currentUser!.uid;
 
-  if (!mirror || mirror.uid !== uid) {
-    const data = new LedgerMirror<Timestamp>();
-    if (offlineEnabled) {
-      // Copia salvata sul dispositivo: leggerla non costa letture Firestore.
-      try { data.apply(rawDocs(await getDocsFromCache(ref))); } catch {}
-    }
-    mirror = { uid, data };
-  }
-  const { data } = mirror;
+  if (!mirror || mirror.uid !== uid) mirror = { uid, data: new LedgerMirror<Timestamp>(), fullSyncAt: 0 };
+  const current = mirror;
+  const { data } = current;
 
-  if (offlineEnabled && isOffline()) {
-    // Senza rete: la copia locale, comprese le modifiche ancora in coda.
-    data.reset();
-    data.apply(rawDocs(await getDocsFromCache(ref)));
-    return { records: data.records(), trash: data.trashed() };
-  }
-
-  try {
-    if (data.cursor && data.size && !fullSyncDue(uid)) {
-      data.apply(rawDocs(await getDocsFromServer(query(ref, where("updatedAt", ">", data.cursor)))));
-    } else {
-      await fullSync(uid, ref, data);
-    }
-  } catch (error) {
-    // Con l'uso offline, se il server non risponde si mostra la copia locale.
-    if (offlineEnabled && data.size) return { records: data.records(), trash: data.trashed() };
-    throw error;
+  if (data.cursor && data.size && Date.now() - current.fullSyncAt < FULL_SYNC_EVERY_MS) {
+    data.apply(rawDocs(await getDocsFromServer(query(ref, where("updatedAt", ">", data.cursor)))));
+  } else if (await fullSync(ref, data)) {
+    current.fullSyncAt = Date.now();
   }
   return { records: data.records(), trash: data.trashed() };
 }
 
-/** Scrittura singola con controllo dei conflitti tra dispositivi (richiede la rete). */
-export async function writeLedger(action: Mutation) {
-  await firestoreReady;
-  const target = action.op === "save" ? action.record : action;
-  const ref = doc(ledgerCollection(), `${target.kind}:${target.id}`);
+// ---- Scrittura ----
 
-  if (offlineEnabled && isOffline()) {
-    // Offline il controllo dei conflitti non è possibile: vince l'ultima modifica.
-    if (action.op === "delete") {
-      track(setDoc(ref, tombstone(target, action.trash)));
-      return null;
-    }
-    const saved = { ...action.record, version: newId() };
-    track(setDoc(ref, stamped(saved)));
-    return saved;
-  }
-
+/**
+ * Scritture con controllo dei conflitti: in un'unica transazione si rileggono le voci
+ * e si salva solo se nessun altro dispositivo le ha cambiate nel frattempo (vedi planWrite).
+ */
+async function writeChecked(collectionRef: CollectionReference, actions: Mutation[]) {
   return runTransaction(db, async (transaction) => {
-    const snapshot = await transaction.get(ref);
-    const stored = snapshot.exists() ? snapshot.data() : null;
-    // Una voce eliminata ("lapide") vale come inesistente.
-    const current = stored && stored.deleted !== true ? recordSchema.parse(stored) : null;
+    const refs = actions.map((action) => docRef(collectionRef, action));
+    const snapshots = await Promise.all(refs.map((ref) => transaction.get(ref)));
+    const saved: LedgerRecord[] = [];
 
-    // Eliminare ciò che è già nel cestino: si svuota la lapide, senza controllo di versione.
-    if (action.op === "delete" && stored && !current) {
-      transaction.set(ref, tombstone(target, action.trash ?? {}));
-      return null;
-    }
-
-    if ((current?.version ?? null) !== target.version) {
-      throw new Error(
-        "La voce è cambiata su un altro dispositivo. Chiudi la modifica e ricarica."
-      );
-    }
-
-    if (action.op === "delete") {
-      // Lapide invece della cancellazione: gli altri dispositivi lo scoprono
-      // leggendo solo ciò che è cambiato.
-      transaction.set(ref, tombstone(target, action.trash ?? (current ? current.value as Record<string, unknown> : {})));
-      return null;
-    }
-
-    const saved = { ...action.record, version: newId() };
-    transaction.set(ref, stamped(saved));
+    actions.forEach((action, index) => {
+      const stored = snapshots[index].exists() ? snapshots[index].data() : null;
+      const plan = planWrite(action, stored);
+      if (plan.op === "tombstone") {
+        // Lapide invece della cancellazione: gli altri dispositivi lo scoprono leggendo solo ciò che è cambiato.
+        const target = action.op === "save" ? action.record : action;
+        transaction.set(refs[index], tombstone(target, plan.value));
+        return;
+      }
+      if (action.op !== "save") return;
+      const record = { ...action.record, version: newId() };
+      transaction.set(refs[index], stamped(record));
+      saved.push(record);
+    });
     return saved;
   });
 }
 
-/**
- * Più scritture insieme (spostamenti, rinomine, importazioni, ricorrenti).
- * Restituisce le voci salvate con la nuova versione.
- */
-export async function writeMany(actions: Mutation[], onProgress?: (done: number, total: number) => void) {
-  await firestoreReady;
-  const collectionRef = ledgerCollection();
+/** Scritture a blocchi, senza controllo dei conflitti: per ripristini e azzeramenti con molte voci. */
+async function writeInBatches(collectionRef: CollectionReference, actions: Mutation[], onProgress?: (done: number, total: number) => void) {
   const saved: LedgerRecord[] = [];
   for (let start = 0; start < actions.length; start += BATCH_SIZE) {
     const batch = writeBatch(db);
+    const chunk: LedgerRecord[] = [];
     for (const action of actions.slice(start, start + BATCH_SIZE)) {
-      const target = action.op === "save" ? action.record : action;
-      const ref: DocumentReference = doc(collectionRef, `${target.kind}:${target.id}`);
+      const ref = docRef(collectionRef, action);
       if (action.op === "delete") {
-        batch.set(ref, tombstone(target, action.trash));
+        batch.set(ref, tombstone(action, action.trash));
       } else {
         const record = { ...action.record, version: newId() };
         batch.set(ref, stamped(record));
-        saved.push(record);
+        chunk.push(record);
       }
     }
-    if (offlineEnabled && isOffline()) track(batch.commit());
-    else await batch.commit();
+    try {
+      await batch.commit();
+    } catch (error) {
+      console.warn("Salvataggio a blocchi interrotto:", error);
+      // Le voci dei blocchi precedenti sono già salvate: ripetere l'operazione completa il lavoro.
+      throw new Error(`Salvataggio interrotto dopo ${start.toLocaleString("it-IT")} voci su ${actions.length.toLocaleString("it-IT")}. Controlla la connessione, ricarica e ripeti l’operazione.`);
+    }
+    saved.push(...chunk);
     onProgress?.(Math.min(start + BATCH_SIZE, actions.length), actions.length);
   }
   return saved;
+}
+
+/**
+ * Salva una o più modifiche e restituisce le voci salvate con la nuova versione.
+ * Fino a TRANSACTION_LIMIT voci il salvataggio è tutto-o-niente e controlla i conflitti.
+ */
+export async function writeLedger(actions: Mutation[], onProgress?: (done: number, total: number) => void) {
+  await firestoreReady;
+  const collectionRef = ledgerCollection();
+  if (actions.length <= TRANSACTION_LIMIT) return writeChecked(collectionRef, actions);
+  return writeInBatches(collectionRef, actions, onProgress);
 }

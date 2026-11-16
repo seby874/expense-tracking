@@ -1,21 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3, CalendarDays, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CloudCheck, CloudOff, Eye, EyeOff,
-  FlaskConical, LayoutDashboard, List, LogOut, Plus, RefreshCw, Settings2, Undo2, WalletCards,
+  FlaskConical, LayoutDashboard, List, LogOut, Plus, Settings2, Undo2, WalletCards,
 } from "lucide-react";
 import {
-  INITIAL_YEAR, MONTHS, adjustmentMovement, deriveLedger, lastRecordedMonth, monthLabel, periodOf, recordSchema, setDiscreet, setPeriodStart, subcategoryList, templateFrom, templateMovement,
+  NO_VERSION, INITIAL_YEAR, MONTHS, adjustmentMovement, deriveLedger, lastRecordedMonth, monthLabel, periodOf, recordSchema, setDiscreet, setPeriodStart, subcategoryList, templateFrom, templateMovement,
   money, newId, todayInRome, type Account, type Balance, type Budget, type Gap, type Goal, type Label, type LedgerRecord, type Movement, type Mutation, type Recurring, type Template,
 } from "../lib/ledger";
 import type { TrashItem } from "../lib/ledger-sync";
 import { markBackup, readLook, resetDevicePrefs } from "../lib/preferences";
 import { BudgetEditor, BudgetList, ForecastPanel, GoalCards, GoalEditor, InsightsPanel, SummaryDialog } from "./planning";
 import { ResetDialog, StyleDialog } from "./settings-extra";
-import { readLedger, subscribePending, writeLedger, writeMany } from "../lib/local-ledger";
-import { offlineEnabled } from "../lib/firebase";
+import { TRANSACTION_LIMIT, readLedger, writeLedger } from "../lib/local-ledger";
 import { sampleLedger } from "../lib/ledger-demo";
 import { BALANCE_HEADER, MOVEMENT_HEADER, backupDocument, balanceRows, csvDocument, downloadFile, movementRows } from "../lib/data-io";
-import { dueDates, dueItems, nextDate, occurrenceMovement, type DueItem } from "../lib/recurring";
+import { dueDates, dueItems, nextDate, occurrenceId, occurrenceMovement, type DueItem } from "../lib/recurring";
 import { BalanceForm, FormError, Modal, MovementForm, type MovementResult } from "./ledger-forms";
 import { Movements, Overview, PanelTitle, Reports, Settings, type SessionInfo } from "./ledger-views";
 import { Patrimonio, type PatrimonioTab } from "./patrimonio";
@@ -79,7 +78,6 @@ type Form =
   | { type: "archive"; target: Account | Label; back: EditForm }
   | { type: "remove"; target: Account | Label; back: EditForm };
 
-const NO_VERSION = "00000000-0000-4000-8000-000000000000";
 
 function applyActions(records: LedgerRecord[], actions: Mutation[], saved: LedgerRecord[]) {
   const removed = new Set(actions.flatMap((action) => (action.op === "delete" ? [`${action.kind}:${action.id}`] : [])));
@@ -90,21 +88,18 @@ function applyActions(records: LedgerRecord[], actions: Mutation[], saved: Ledge
   ];
 }
 
-function useSyncState() {
+function useOnline() {
   const [online, setOnline] = useState(() => navigator.onLine);
-  const [pending, setPending] = useState(0);
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
     window.addEventListener("online", update);
     window.addEventListener("offline", update);
-    const unsubscribe = subscribePending(setPending);
     return () => {
       window.removeEventListener("online", update);
       window.removeEventListener("offline", update);
-      unsubscribe();
     };
   }, []);
-  return { online, pending };
+  return online;
 }
 
 function periodMonth(period: string, last: string | null) {
@@ -162,7 +157,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   const [toast, setToastState] = useState<Toast | null>(null);
   const [progress, setProgress] = useState("");
   const [patrimonioTab, setPatrimonioTab] = useState<PatrimonioTab>("accounts");
-  const sync = useSyncState();
+  const online = useOnline();
   const reading = useRef(0);
   const lastLoad = useRef(0);
   const writing = useRef(false);
@@ -229,7 +224,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       // Le voci nel cestino da più di 30 giorni vengono svuotate (una scrittura ciascuna, una volta sola).
       const expired = current.trash.filter((item) => item.deletedAt !== null && Date.now() - item.deletedAt > TRASH_DAYS * DAY_MS);
       if (expired.length && navigator.onLine) {
-        void writeMany(expired.map((item) => ({ op: "delete" as const, kind: item.record.kind, id: item.record.id, version: item.record.version ?? NO_VERSION, trash: {} })))
+        void writeLedger(expired.map((item) => ({ op: "delete" as const, kind: item.record.kind, id: item.record.id, version: item.record.version ?? NO_VERSION, trash: {} })))
           .catch(() => { /* si riproverà alla prossima apertura */ });
       }
     } catch (error) {
@@ -242,11 +237,11 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
 
   useEffect(() => { void load(); }, [load]);
   // Al ritorno della connessione si ricarica l'archivio (non al primo avvio).
-  const wasOnline = useRef(sync.online);
+  const wasOnline = useRef(online);
   useEffect(() => {
-    if (sync.online && !wasOnline.current && !demo && !form) void load();
-    wasOnline.current = sync.online;
-  }, [sync.online]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (online && !wasOnline.current && !demo && !form) void load();
+    wasOnline.current = online;
+  }, [online]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (form || demo) return;
     // Al ritorno sull'app si controllano le modifiche fatte da altri dispositivi,
@@ -298,8 +293,10 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   }
 
   // Scorciatoie da tastiera (fuori dai campi di testo e senza finestre aperte).
+  // Il gestore aggiornato sta in un ref: l'ascoltatore si registra una volta sola.
+  const keyHandler = useRef<(event: KeyboardEvent) => void>(() => undefined);
   useEffect(() => {
-    function onKey(event: KeyboardEvent) {
+    keyHandler.current = function onKey(event: KeyboardEvent) {
       if (event.ctrlKey || event.metaKey || event.altKey || form || event.defaultPrevented) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
@@ -313,10 +310,13 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
         window.setTimeout(() => document.getElementById("movement-search")?.focus(), 60);
       } else if (key === "d") setHidden((value) => !value);
       else if (/^[1-5]$/.test(key)) navigate(order[Number(key) - 1]);
-    }
+    };
+  });
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => keyHandler.current(event);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, []);
 
   function toggleDemo() {
     if (demo) {
@@ -440,10 +440,6 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   }
   function confirmDelete(record: Movement | Balance | Recurring) { sub((back) => ({ type: "delete", record, back })); }
 
-  function savedNote(message: string) {
-    return offlineEnabled && !navigator.onLine ? `${message} Si sincronizzerà al ritorno della rete.` : message;
-  }
-
   /** Applica una o più scritture. Una sola scrittura usa il controllo dei conflitti tra dispositivi. */
   async function commit(input: Mutation[], message: string, options: CommitOptions = {}) {
     if (writing.current || !input.length) return false;
@@ -469,11 +465,8 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       let saved: LedgerRecord[];
       if (demo) {
         saved = actions.flatMap((action) => (action.op === "save" ? [{ ...action.record, version: newId() }] : []));
-      } else if (actions.length === 1) {
-        const result = await writeLedger(actions[0]);
-        saved = result ? [result] : [];
       } else {
-        saved = await writeMany(actions, (done, total) => {
+        saved = await writeLedger(actions, (done, total) => {
           if (total > 400) setProgress(`Salvataggio ${done.toLocaleString("it-IT")} di ${total.toLocaleString("it-IT")}…`);
         });
       }
@@ -505,7 +498,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
         if (balances.length === 1 && !balances[0].value.month.startsWith(period)) setPeriod(balances[0].value.month);
       }
       if (options.closeForm !== false) setForm(null);
-      setToast(savedNote(message), undo);
+      setToast(message, undo);
       return true;
     } catch (error) {
       const text = error instanceof Error ? error.message : "Impossibile completare la richiesta.";
@@ -553,13 +546,23 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
     void commit(actions, (result.schedule ? "Movimento salvato e ripetizione creata." : "Movimento salvato.") + note, { jump: true });
   }
 
+  /** true se la scadenza ha già il suo movimento (es. il calendario del ricorrente è ripartito da date già registrate). */
+  function alreadyRegistered(recurring: Recurring, date: string) {
+    const id = occurrenceId(recurring, date, () => "");
+    return !!id && currentRecords.some((record) => record.kind === "movement" && record.id === id);
+  }
+
   function registerOccurrence(item: DueItem, value = occurrenceMovement(item.recurring, item.date, ledger), extra: Mutation[] = []) {
     const { recurring } = item;
     const schedule = { ...recurring.value.schedule, done: recurring.value.schedule.done + 1 };
+    const advance: Mutation = { op: "save", record: { ...recurring, value: { ...recurring.value, schedule } } };
+    if (alreadyRegistered(recurring, item.date)) {
+      return commit([...extra, advance], `La scadenza del ${item.date.split("-").reverse().join("/")} era già registrata: segnata come gestita.`);
+    }
     return commit([
       ...extra,
-      { op: "save", record: { kind: "movement", id: newId(), version: null, value } },
-      { op: "save", record: { ...recurring, value: { ...recurring.value, schedule } } },
+      { op: "save", record: { kind: "movement", id: occurrenceId(recurring, item.date, newId), version: null, value } },
+      advance,
     ], `«${value.title}» registrato.`);
   }
 
@@ -576,18 +579,28 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
     return occurrenceMovement(recurring, date, view);
   }
 
+  /**
+   * Registra tutte le scadenze arrivate in un'unica transazione (con controllo dei conflitti).
+   * Se sono troppe per una transazione si registrano i primi ricorrenti: gli altri restano proposti.
+   */
   function registerAll() {
     const actions: Mutation[] = [];
     let count = 0;
+    let left = 0;
     for (const item of due) {
       const dates = dueDates(item.recurring.value.schedule, today);
+      const group: Mutation[] = [];
       for (const date of dates) {
-        actions.push({ op: "save", record: { kind: "movement", id: newId(), version: null, value: registerValue(item.recurring, date, actions) } });
+        if (alreadyRegistered(item.recurring, date)) continue;
+        group.push({ op: "save", record: { kind: "movement", id: occurrenceId(item.recurring, date, newId), version: null, value: registerValue(item.recurring, date, [...actions, ...group]) } });
       }
-      count += dates.length;
-      actions.push({ op: "save", record: { ...item.recurring, value: { ...item.recurring.value, schedule: { ...item.recurring.value.schedule, done: item.recurring.value.schedule.done + dates.length } } } });
+      group.push({ op: "save", record: { ...item.recurring, value: { ...item.recurring.value, schedule: { ...item.recurring.value.schedule, done: item.recurring.value.schedule.done + dates.length } } } });
+      if (actions.length && actions.length + group.length > TRANSACTION_LIMIT) { left += dates.length; continue; }
+      actions.push(...group);
+      count += group.length - 1;
     }
-    void commit(actions, `${count} ${count === 1 ? "movimento registrato" : "movimenti registrati"}.`);
+    const message = `${count} ${count === 1 ? "movimento registrato" : "movimenti registrati"}.`;
+    void commit(actions, left ? `${message} Altre ${left} scadenze restano da registrare: premi di nuovo «Registra tutte».` : message);
   }
 
   function saveRecurringForm(target: Extract<EditForm, { type: "recurring" }>, result: MovementResult) {
@@ -718,7 +731,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       </nav>
       <div className="sidebar-bottom">
         <div className="sidebar-private"><span className="sidebar-lock"><CloudCheck size={16} /></span>
-          <div><strong>{offlineEnabled ? "Cloud + dispositivo" : "Archivio cloud"}</strong><small title={session.email}>{session.email || "Conti in euro · EUR"}</small></div>
+          <div><strong>Archivio cloud</strong><small title={session.email}>{session.email || "Conti in euro · EUR"}</small></div>
         </div>
         <button type="button" className="sidebar-logout" onClick={session.onLogout}><LogOut size={17} /> Esci</button>
       </div>
@@ -728,10 +741,9 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       <header className="topbar">
         <div className="breadcrumbs"><span>{APP_NAME}</span><ChevronRight size={15} /><strong>{sectionTitle}</strong></div>
         <div className="topbar-end">
-          <span className={`privacy-badge${!demo && (!sync.online || sync.pending) ? " is-offline" : ""}`} role="status">
+          <span className={`privacy-badge${!demo && !online ? " is-offline" : ""}`} role="status">
             {demo ? <><i />Dati di esempio</>
-              : !sync.online ? <><CloudOff size={13} />{offlineEnabled ? `Offline${sync.pending ? ` · ${sync.pending} in attesa` : ""}` : "Nessuna connessione"}</>
-              : sync.pending ? <><RefreshCw size={13} className="spin" />Sincronizzazione…</>
+              : !online ? <><CloudOff size={13} />Nessuna connessione</>
               : <><i />Archivio sincronizzato</>}
           </span>
           <button type="button" className="icon-button quiet" aria-pressed={hidden} aria-label={hidden ? "Mostra gli importi" : "Nascondi gli importi"}

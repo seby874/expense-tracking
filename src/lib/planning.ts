@@ -1,5 +1,5 @@
 import {
-  accountBalances, expenseParts, hasTag, monthEnd, netWorth, periodMovements, periodOf, shiftMonth, totals,
+  accountBalances, expenseParts, hasTag, monthEnd, netWorth, periodMovements, periodOf, shiftMonth, totals, wholeMoney as money,
   type Account, type Budget, type Goal, type Ledger, type Movement,
 } from "./ledger";
 import { occurrence, occurrenceMovement } from "./recurring";
@@ -38,6 +38,8 @@ export function forecast(ledger: Ledger, today: string, days = 30): AccountForec
     (account.value.type === "cash" || account.value.type === "asset") && !account.value.archived && amount !== null);
   if (!cash.length) return [];
   const ids = new Set(cash.map(({ account }) => account.id));
+  // Un saldo registrato per il mese in corso è il saldo di oggi: i movimenti futuri non ci sono ancora dentro.
+  const exact = new Set(cash.filter((item) => item.exact).map(({ account }) => account.id));
   const events: ForecastEvent[] = [];
   const start = new Map(cash.map(({ account, amount }) => [account.id, amount ?? 0]));
 
@@ -45,9 +47,9 @@ export function forecast(ledger: Ledger, today: string, days = 30): AccountForec
     if (value.date <= today) continue;
     for (const [accountId, amount] of effects(value)) {
       if (!ids.has(accountId)) continue;
-      // Il saldo del mese corrente (registrato a fine mese o calcolato) comprende già i movimenti futuri
-      // di questo mese: si tolgono per avere il saldo di oggi, poi rientrano nel giorno in cui cadono.
-      if (value.date.slice(0, 7) === month) start.set(accountId, (start.get(accountId) ?? 0) - amount);
+      // Il saldo calcolato del mese corrente comprende già i movimenti futuri di questo mese:
+      // si tolgono per avere il saldo di oggi, poi rientrano nel giorno in cui cadono.
+      if (value.date.slice(0, 7) === month && !exact.has(accountId)) start.set(accountId, (start.get(accountId) ?? 0) - amount);
       if (value.date <= horizon) events.push({ date: value.date, title: value.title, accountId, amount, planned: false });
     }
   }
@@ -116,13 +118,13 @@ export type Growth = { change: number; saving: number; returns: number | null; o
  */
 export function growth(ledger: Ledger, month: string): Growth | null {
   const previous = shiftMonth(month, -1);
-  const now = netWorth(accountBalances(ledger, month));
-  const before = netWorth(accountBalances(ledger, previous));
+  const valueNow = accountBalances(ledger, month);
+  const valueBefore = accountBalances(ledger, previous);
+  const now = netWorth(valueNow);
+  const before = netWorth(valueBefore);
   if (now === null || before === null) return null;
   const saving = totals(ledger.movements.filter(({ value }) => value.date.slice(0, 7) === month)).saving;
   let returns: number | null = null;
-  const valueNow = accountBalances(ledger, month);
-  const valueBefore = accountBalances(ledger, previous);
   for (const account of ledger.accounts.filter(({ value }) => value.type === "investment")) {
     const a = valueNow.find((entry) => entry.account.id === account.id)?.amount;
     const b = valueBefore.find((entry) => entry.account.id === account.id)?.amount;
@@ -163,9 +165,26 @@ export function budgetStatus(ledger: Ledger, budget: Budget, period: string): Bu
 
 export type GoalStatus = { goal: Goal; current: number; share: number; monthly: number | null; monthsLeft: number | null; late: boolean };
 
+/**
+ * Saldo di un conto oggi: il saldo del mese senza i movimenti con data futura.
+ * Un saldo registrato per il mese in corso vale già come saldo di oggi.
+ */
+export function balanceOnDay(ledger: Ledger, accountId: string, today: string): number | null {
+  const month = today.slice(0, 7);
+  const entry = accountBalances(ledger, month).find(({ account }) => account.id === accountId);
+  if (!entry || entry.amount === null) return null;
+  if (entry.exact) return entry.amount;
+  let amount = entry.amount;
+  for (const { value } of ledger.movements) {
+    if (value.date <= today || value.date.slice(0, 7) !== month) continue;
+    for (const [id, change] of effects(value)) if (id === accountId) amount -= change;
+  }
+  return amount;
+}
+
 export function goalStatus(ledger: Ledger, goal: Goal, today: string): GoalStatus {
   const { accountId, saved, target, deadline } = goal.value;
-  const balance = accountId ? accountBalances(ledger, today.slice(0, 7)).find(({ account }) => account.id === accountId)?.amount ?? null : null;
+  const balance = accountId ? balanceOnDay(ledger, accountId, today) : null;
   const current = Math.max(0, accountId ? balance ?? 0 : saved);
   const missing = Math.max(0, target - current);
   let monthsLeft: number | null = null;
@@ -231,10 +250,6 @@ export function insights(ledger: Ledger, month: string, today: string): Insight[
       text: total > usualTotal ? `Spese totali ${money(total - usualTotal)} sopra la tua media.` : `Spese totali ${money(usualTotal - total)} sotto la tua media: ottimo.` });
   }
   return list.sort((a, b) => b.weight - a.weight).slice(0, 5).map(({ weight: _weight, ...item }) => item);
-}
-
-function money(cents: number) {
-  return new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(Math.round(cents / 100));
 }
 
 export type PeriodSummary = {

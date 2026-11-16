@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Plus, Trash2, Undo2 } from "lucide-react";
 import {
-  ACCOUNT_TYPES, MAX_SUBCATEGORIES, accountBalances, activeAccounts, activeLabels, balanceId, isDefaultId, money,
+  NO_VERSION, ACCOUNT_TYPES, MAX_SUBCATEGORIES, accountBalances, activeAccounts, activeLabels, balanceId, isDefaultId, money,
   monthLabel, sameName, subcategoryList, subcategoryUsage, usage,
   type Account, type Label, type Ledger, type Movement, type Mutation,
 } from "../lib/ledger";
@@ -225,7 +225,7 @@ function removalAction(target: Account | Label): Mutation {
     const { archived: _archived, ...rest } = target.value;
     return { op: "save", record: { ...target, value: { ...rest, removed: true } } as Account | Label };
   }
-  return { op: "delete", kind: target.kind, id: target.id, version: target.version ?? "00000000-0000-4000-8000-000000000000" };
+  return { op: "delete", kind: target.kind, id: target.id, version: target.version ?? NO_VERSION };
 }
 
 /** Rate ricorrenti che appartengono a un debito: si mettono in pausa con l'archiviazione e si eliminano con il debito. */
@@ -356,8 +356,8 @@ export function RemoveDialog({ ledger, target, busy, error, onCommit, onCancel }
         actions.push({ op: "save", record: { ...destinationLabel, value: { ...destinationLabel.value, subcategories: list } } });
       }
     }
-    for (const balance of used.balances) actions.push({ op: "delete", kind: "balance", id: balance.id, version: balance.version ?? "00000000-0000-4000-8000-000000000000" });
-    for (const recurring of own) actions.push({ op: "delete", kind: "recurring", id: recurring.id, version: recurring.version ?? "00000000-0000-4000-8000-000000000000" });
+    for (const balance of used.balances) actions.push({ op: "delete", kind: "balance", id: balance.id, version: balance.version ?? NO_VERSION });
+    for (const recurring of own) actions.push({ op: "delete", kind: "recurring", id: recurring.id, version: recurring.version ?? NO_VERSION });
     actions.push(removalAction(target));
     onCommit(actions, linked ? `${plural(linked, "voce spostata", "voci spostate")} e «${name}» eliminato.` : `«${name}» eliminato.`);
   }

@@ -1,6 +1,6 @@
 import {
-  ENTRY_TYPES, INTEREST_LABEL, deriveLedger, isDefaultId, newId, parseMoney, recordSchema, sameName, subcategoryList,
-  type Account, type Balance, type Label, type Ledger, type LedgerRecord, type Movement, type Mutation,
+  ENTRY_TYPES, recordSchema,
+  type Ledger, type LedgerRecord, type Movement, type Mutation,
 } from "./ledger";
 
 // ---------------------------------------------------------------- Esportazione
@@ -115,6 +115,3 @@ export function planRestore(text: string, records: LedgerRecord[]): RestorePlan 
   return plan;
 }
 
-export function isDefaultRecord(record: Account | Label) {
-  return isDefaultId(record.kind, record.id);
-}

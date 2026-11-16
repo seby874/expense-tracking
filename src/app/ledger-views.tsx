@@ -1,12 +1,12 @@
 import { useId, useMemo, useRef, useState, type CSSProperties, type ReactNode, type TouchEvent } from "react";
 import {
   Archive, ArrowDownLeft, ArrowDownToLine, ArrowRight, ArrowUpRight, BarChart3, ChartNoAxesCombined, ChevronRight,
-  CircleDollarSign, CircleHelp, ClipboardList, CloudOff, DatabaseBackup, FileUp, KeyRound, Landmark, Layers3, Monitor, Moon,
-  Handshake, Pencil, Plus, RotateCw, Search, Sun, Tag, Timer, TrendingUp, Wallet, WalletCards,
+  CircleDollarSign, CircleHelp, ClipboardList, DatabaseBackup, FileUp, KeyRound, Landmark, Layers3, Monitor, Moon,
+  Handshake, Pencil, Plus, Search, Sun, Tag, Timer, TrendingUp, Wallet, WalletCards,
   ArrowDown, ArrowUp, BookmarkPlus, CheckSquare, Copy, FileText, Filter, Star, Trash2, X,
 } from "lucide-react";
 import {
-  ACCOUNT_TYPES, ENTRY_TYPES, MONTHS, accountBalances, activeAccounts, lastRecordedMonth, mix, money, monthLabel,
+  NO_VERSION, ACCOUNT_TYPES, ENTRY_TYPES, MONTHS, accountBalances, activeAccounts, lastRecordedMonth, mix, money, monthLabel,
   monthName, netWorth, periodMovements, rate, shortDate, subcategoryList, subcategoryUsage, totals, yearlyFlow, yearMonths,
   allTags, expenseParts, hasTag, evaluateAmount, getPeriodStart, periodRange, MAX_TAGS,
   isDiscreet,
@@ -18,12 +18,10 @@ import { FavoritesPanel, OrganizePanel, OverviewPanel, PeriodPanel, PersonalPane
 import { BudgetPanel, InsightsPanel } from "./planning";
 import { StyleIcon, toneClass } from "./style";
 import { readFilters, readWidgets, saveFilters, type SavedFilter, type WidgetKey } from "../lib/preferences";
-import { LockSetting } from "./settings-extra";
 import { TagChips } from "./tags";
 import { IDLE_OPTIONS } from "../lib/config";
 import { idleLabel } from "../lib/session";
-import { readOffline, readTheme, saveOffline, saveTheme, type ThemeMode } from "../lib/preferences";
-import { offlineEnabled } from "../lib/firebase";
+import { readTheme, saveTheme, type ThemeMode } from "../lib/preferences";
 
 export type SessionInfo = {
   email: string;
@@ -394,7 +392,7 @@ export function Movements({ ledger, period, onEdit, onNew, onExport, onCommit, o
   }
   function bulkDelete() {
     setConfirmDelete(false);
-    onCommit(chosen.map((item) => ({ op: "delete" as const, kind: "movement" as const, id: item.id, version: item.version ?? "00000000-0000-4000-8000-000000000000" })),
+    onCommit(chosen.map((item) => ({ op: "delete" as const, kind: "movement" as const, id: item.id, version: item.version ?? NO_VERSION })),
       `${chosen.length === 1 ? "1 movimento eliminato" : `${chosen.length} movimenti eliminati`}: li trovi nel cestino.`);
     setSelected(new Set());
   }
@@ -774,8 +772,6 @@ function CategoryTree({ ledger, type, onLabel }: {
 
 function DevicePanel() {
   const [theme, setTheme] = useState<ThemeMode>(readTheme);
-  const [offline, setOffline] = useState(readOffline);
-  const changed = offline !== offlineEnabled;
   const themes: [ThemeMode, string, typeof Sun][] = [["auto", "Automatico", Monitor], ["light", "Chiaro", Sun], ["dark", "Scuro", Moon]];
   return <section className="panel device-panel">
     <PanelTitle title="Aspetto e dispositivo" subtitle="Queste scelte valgono solo per questo browser." />
@@ -788,18 +784,7 @@ function DevicePanel() {
             onClick={() => { setTheme(value); saveTheme(value); }}><Icon size={15} />{title}</button>)}
         </div>
       </li>
-      <li>
-        <span className="security-icon"><CloudOff size={18} /></span>
-        <div><strong>Uso offline</strong><p>{offline
-          ? "I dati restano anche su questo dispositivo: puoi consultarli e registrare movimenti senza rete, si sincronizzano al ritorno della connessione. Premendo “Esci” la copia locale viene cancellata. Consigliato sui tuoi dispositivi: l’app scarica dal cloud solo le modifiche invece dell’intero archivio."
-          : "I dati restano solo sul cloud. Attivalo sui tuoi dispositivi personali, non su PC condivisi."}</p></div>
-        <label className="switch"><input type="checkbox" checked={offline} onChange={(event) => { setOffline(event.target.checked); saveOffline(event.target.checked); }} />
-          <span aria-hidden="true" /><span className="sr-only">Uso offline</span></label>
-      </li>
     </ul>
-    {changed && <div className="notice reload-notice"><RotateCw size={18} /><div><strong>Ricarica per applicare</strong>
-      <span>{offline ? "Dopo il ricaricamento l’app salverà una copia dei dati su questo dispositivo." : "Dopo il ricaricamento la copia locale verrà cancellata."}</span></div>
-      <button type="button" className="button secondary" onClick={() => window.location.reload()}>Ricarica ora</button></div>}
   </section>;
 }
 
@@ -822,7 +807,6 @@ export function Settings({ ledger, onLabel, onExport, onBalancesExport, onBackup
     <PersonalPanel />
     <OverviewPanel />
     <SecurityPanel session={session} />
-    <LockSetting email={session.email} />
     <DevicePanel />
     <section className="panel export-panel">
       <PanelTitle title="I tuoi dati" subtitle="Esporta in CSV, scarica un backup completo o ripristinalo." />

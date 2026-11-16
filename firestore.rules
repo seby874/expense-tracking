@@ -33,9 +33,15 @@ service cloud.firestore {
     }
 
     match /users/{uid}/ledger/{entryId} {
-      // Niente cancellazioni dal client: l'app scrive una lapide al loro posto.
+      // Le voci non si cancellano: l'app scrive una lapide al loro posto.
+      // Si possono cancellare solo le lapidi già svuotate (eliminazioni definitive),
+      // che l'app rimuove dopo 60 giorni per non doverle rileggere.
       allow read: if isOwner(uid);
       allow create, update: if isOwner(uid) && isValidEntry(entryId);
+      allow delete: if isOwner(uid)
+        && resource.data.deleted == true
+        && resource.data.value is map
+        && resource.data.value.size() == 0;
     }
 
     // Qualsiasi altro percorso è vietato.

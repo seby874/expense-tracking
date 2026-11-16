@@ -1,9 +1,9 @@
-import { useState, type CSSProperties, type FormEvent } from "react";
+import { useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import {
   AlertTriangle, ArrowDownRight, ArrowUpRight, CalendarClock, CheckCircle2, Info, Lightbulb, Pencil, PiggyBank, Plus, Printer, Target, Trash2, TrendingUp,
 } from "lucide-react";
 import {
-  TONE_HEX, activeLabels, allTags, evaluateAmount, money, monthLabel, monthName, newId, periodRange, rate, shortDate,
+  NO_VERSION, TONE_HEX, activeLabels, allTags, evaluateAmount, isDiscreet, money, monthLabel, monthName, newId, periodRange, rate, shortDate,
   type Budget, type Goal, type Ledger, type Mutation, type Tone,
 } from "../lib/ledger";
 import {
@@ -14,7 +14,6 @@ import { FormError, Submit, amountInput } from "./ledger-forms";
 import { AmountPreview } from "./inputs";
 import { StyleIcon, StylePicker, isTone, toneClass } from "./style";
 
-const NO_VERSION = "00000000-0000-4000-8000-000000000000";
 
 function periodTitle(period: string) {
   return period.length === 4 ? `Anno ${period}` : monthLabel(period);
@@ -216,7 +215,7 @@ function Spark({ points }: { points: number[] }) {
 }
 
 export function ForecastPanel({ ledger, today }: { ledger: Ledger; today: string }) {
-  const list = forecast(ledger, today);
+  const list = useMemo(() => forecast(ledger, today), [ledger, today]);
   const events = list.flatMap(({ account, events }) => events.map((event) => ({ ...event, account: account.value.name })))
     .sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6);
   return <section className="panel forecast-panel">
@@ -242,7 +241,9 @@ export function ForecastPanel({ ledger, today }: { ledger: Ledger; today: string
 // ---------------------------------------------------------------- Segnalazioni
 
 export function InsightsPanel({ ledger, period, today }: { ledger: Ledger; period: string; today: string }) {
-  const list = insights(ledger, period, today);
+  const hidden = isDiscreet();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const list = useMemo(() => insights(ledger, period, today), [ledger, period, today, hidden]);
   return <section className="panel insights-panel">
     <PanelTitle title="Segnalazioni" subtitle={`${periodTitle(period)} rispetto alla tua media`} />
     {list.length ? <ul className="insight-list">{list.map((item, index) => <li key={index} className={`insight-${item.tone}`}>
@@ -367,12 +368,11 @@ function WorthChart({ points, shown, month, onMonth }: { points: WorthPoint[]; s
 export function WorthPanel({ ledger, month, onMonth }: { ledger: Ledger; month: string; onMonth: (month: string) => void }) {
   const [range, setRange] = useState<12 | 24 | "all">(12);
   const [shown, setShown] = useState<SeriesKey[]>(["net"]);
-  const months = monthsUntil(ledger, month, range);
-  const points = worthSeries(ledger, months);
+  const points = useMemo(() => worthSeries(ledger, monthsUntil(ledger, month, range)), [ledger, month, range]);
   const current = points.at(-1)?.net ?? null;
   const previous = points.at(-2)?.net ?? null;
-  const january = worthSeries(ledger, [`${Number(month.slice(0, 4)) - 1}-12`])[0].net;
-  const parts = growth(ledger, month);
+  const january = useMemo(() => worthSeries(ledger, [`${Number(month.slice(0, 4)) - 1}-12`])[0].net, [ledger, month]);
+  const parts = useMemo(() => growth(ledger, month), [ledger, month]);
   const toggle = (key: SeriesKey) => setShown((list) => list.includes(key) ? list.filter((item) => item !== key) : [...list, key]);
   const signed = (value: number | null) => value === null ? "—" : `${value >= 0 ? "+" : "−"}${money(Math.abs(value))}`;
   return <section className="panel history-panel">

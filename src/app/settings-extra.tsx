@@ -1,15 +1,14 @@
 import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
 import {
-  ArrowDown, ArrowUp, CalendarRange, CircleAlert, DatabaseBackup, EyeOff, FileUp, Fingerprint, Keyboard, LayoutGrid, Palette, Pencil, Plus,
+  ArrowDown, ArrowUp, CalendarRange, CircleAlert, DatabaseBackup, EyeOff, FileUp, Keyboard, LayoutGrid, Palette, Pencil, Plus,
   RotateCcw, Star, Tag, Trash2, TriangleAlert, Type,
 } from "lucide-react";
 import {
-  ENTRY_TYPES, allTags, hasTag, money, monthLabel, sameName, shortDate,
+  NO_VERSION, ENTRY_TYPES, allTags, hasTag, money, monthLabel, sameName, shortDate,
   todayInRome,
   type Account, type Label, type Ledger, type LedgerRecord, type Mutation, type Template,
 } from "../lib/ledger";
 import { OVERVIEW_WIDGETS, readWidgets, saveWidgets, type WidgetPref } from "../lib/preferences";
-import { disableLock, enableLock, lockAvailable, lockEnabled, LOCK_MAX_HOURS } from "../lib/lock";
 import { ACCENTS, StyleIcon, StylePicker, toneClass } from "./style";
 import { AccountGlyph } from "./ledger-views";
 import type { TrashItem } from "../lib/ledger-sync";
@@ -25,7 +24,6 @@ function PanelHead({ icon, title, subtitle, action }: { icon: ReactNode; title: 
   </div>;
 }
 
-const NO_VERSION = "00000000-0000-4000-8000-000000000000";
 
 // ---------------------------------------------------------------- Preferiti
 
@@ -313,37 +311,6 @@ function describePeriod(day: number, today: string) {
     : `Esempio: «${name}» va dal ${day} ${prev} al ${day - 1} ${name}. Utile se lo stipendio arriva il ${day}: le spese contano nel mese di quello stipendio.`;
 }
 
-// ---------------------------------------------------------------- Sblocco con impronta
-
-export function LockSetting({ email }: { email: string }) {
-  const [available, setAvailable] = useState<boolean | null>(null);
-  const [on, setOn] = useState(lockEnabled);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { void lockAvailable().then(setAvailable); }, []);
-
-  async function toggle(next: boolean) {
-    setError("");
-    if (!next) { disableLock(); setOn(false); return; }
-    setBusy(true);
-    try { await enableLock(email); setOn(true); } catch { setError("Attivazione non riuscita o annullata."); }
-    setBusy(false);
-  }
-
-  return <section className="panel device-panel">
-    <PanelHead icon={<Fingerprint size={18} />} title="Sblocco con impronta" subtitle="Solo su questo dispositivo." />
-    <ul className="security-list"><li>
-      <span className="security-icon"><Fingerprint size={18} /></span>
-      <div><strong>{on ? "Attivo" : "Disattivato"}</strong>
-        <p>{available === false ? "Questo dispositivo o browser non ha uno sblocco con impronta o PIN utilizzabile. Resta il logout per inattività."
-          : `Dopo l’inattività l’app si blocca invece di disconnetterti: la sblocchi con impronta, volto o PIN del dispositivo. Dopo ${LOCK_MAX_HOURS} ore serve comunque la password. È un blocco locale: protegge da chi prende in mano il dispositivo.`}</p>
-        {error && <p className="form-error" role="alert">{error}</p>}</div>
-      {available !== false && <label className="switch"><input type="checkbox" checked={on} disabled={busy || available === null} onChange={(event) => void toggle(event.target.checked)} />
-        <span aria-hidden="true" /><span className="sr-only">Sblocco con impronta</span></label>}
-    </li></ul>
-  </section>;
-}
-
 // ---------------------------------------------------------------- Ricomincia da zero
 
 export function ResetPanel({ demo, onReset }: { demo: boolean; onReset: () => void }) {
@@ -368,7 +335,7 @@ export function ResetDialog({ count, busy, error, progress, onConfirm, onCancel 
       <p>Movimenti, saldi, ricorrenti, preferiti, budget, obiettivi, conti e categorie personalizzati, impostazioni comuni. L’app riparte vuota, con Fineco, Revolut, Contanti e le categorie iniziali. Le scritture su Firestore sono {count.toLocaleString("it-IT")}.</p>
     </div></div>
     <label className="check-row compact"><input type="checkbox" checked={device} onChange={(event) => setDevice(event.target.checked)} />
-      <span><strong>Azzera anche questo dispositivo</strong><small>Personalizzazione, riquadri della Panoramica, filtri salvati e promemoria. Tema, uso offline e sblocco con impronta restano.</small></span></label>
+      <span><strong>Azzera anche questo dispositivo</strong><small>Personalizzazione, riquadri della Panoramica, filtri salvati e promemoria. Il tema resta.</small></span></label>
     <label>Per confermare scrivi <b>{RESET_WORD}</b>
       <input value={word} onChange={(event) => setWord(event.target.value)} autoComplete="off" autoCapitalize="characters" spellCheck={false} /></label>
     {progress && <p className="form-help" role="status">{progress}</p>}

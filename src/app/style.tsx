@@ -65,4 +65,3 @@ export function StylePicker({ color, icon, onChange }: {
 export const ACCENTS = [
   ["green", "Verde"], ["blue", "Blu"], ["indigo", "Indaco"], ["purple", "Viola"], ["pink", "Rosa"], ["orange", "Arancio"], ["slate", "Ardesia"],
 ] as const;
-export type Accent = (typeof ACCENTS)[number][0];

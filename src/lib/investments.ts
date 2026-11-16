@@ -27,7 +27,9 @@ export function investmentSummary(ledger: Ledger, month: string) {
   const known = rows.filter((row) => row.value !== null);
   const value = known.length ? known.reduce((sum, row) => sum + (row.value ?? 0), 0) : null;
   const paid = rows.reduce((sum, row) => sum + row.paid, 0);
-  return { rows, value, paid, gain: value === null ? null : value - paid };
+  // Il guadagno confronta valore e versato degli stessi investimenti: quelli senza un valore registrato restano fuori.
+  const paidKnown = known.reduce((sum, row) => sum + row.paid, 0);
+  return { rows, value, paid, paidKnown, gain: value === null ? null : value - paidKnown };
 }
 
 /** Valore e versato mese per mese (per il grafico). */
@@ -36,6 +38,6 @@ export function investmentHistory(ledger: Ledger, months: string[]) {
   return months.map((month) => {
     const summary = investmentSummary(ledger, month);
     const future = !latest || month > latest;
-    return { month, value: future ? null : summary.value, paid: future ? null : summary.paid };
+    return { month, value: future ? null : summary.value, paid: future ? null : summary.paidKnown };
   });
 }

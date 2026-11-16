@@ -1,9 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { browserLocalPersistence, indexedDBLocalPersistence, initializeAuth } from "firebase/auth";
-import {
-  CACHE_SIZE_UNLIMITED, clearIndexedDbPersistence, initializeFirestore, memoryLocalCache, persistentLocalCache, persistentMultipleTabManager,
-} from "firebase/firestore";
-import { readOffline, takeCacheClear } from "./preferences";
+import { clearIndexedDbPersistence, initializeFirestore, memoryLocalCache } from "firebase/firestore";
+import { legacyCachePending, removeLegacyPrefs } from "./preferences";
 
 // Questa configurazione è pubblica per natura (finisce nel bundle del browser).
 // La protezione dei dati è data dalle regole Firestore e dalle restrizioni
@@ -26,20 +24,18 @@ export const auth = initializeAuth(app, {
 });
 auth.languageCode = "it";
 
-/** Uso offline attivato su questo dispositivo (Impostazioni → Aspetto e dispositivo). */
-export const offlineEnabled = readOffline();
-
-// Con l'uso offline i dati restano anche nel browser (IndexedDB); senza, solo in memoria.
+// I dati vivono solo in memoria: nessuna copia dell'archivio resta nel browser.
 export const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
-  localCache: offlineEnabled
-    // Dimensione illimitata: l'archivio è piccolo e un documento tolto dalla cache andrebbe riletto dal server.
-    ? persistentLocalCache({ tabManager: persistentMultipleTabManager(), cacheSizeBytes: CACHE_SIZE_UNLIMITED })
-    : memoryLocalCache(),
+  localCache: memoryLocalCache(),
 });
 
-// Dopo un'uscita o dopo aver disattivato l'offline, la copia locale si cancella
-// qui, prima che Firestore la apra. Le altre funzioni attendono questa promessa.
-export const firestoreReady: Promise<void> = takeCacheClear()
-  ? clearIndexedDbPersistence(db).catch((error) => console.warn("Pulizia della copia locale non riuscita:", error))
-  : Promise.resolve();
+// Le versioni precedenti potevano salvare una copia nel browser ("Uso offline"):
+// se c'era, si cancella qui, prima che Firestore parta. Le altre funzioni attendono questa promessa.
+// Se la cancellazione non riesce (es. un'altra scheda vecchia ancora aperta) si riprova alla prossima apertura.
+export const firestoreReady: Promise<void> = legacyCachePending()
+  ? clearIndexedDbPersistence(db).then(
+    () => removeLegacyPrefs(true),
+    (error) => { removeLegacyPrefs(false); console.warn("Pulizia della copia locale non riuscita, si riproverà:", error); },
+  )
+  : Promise.resolve(removeLegacyPrefs(true));

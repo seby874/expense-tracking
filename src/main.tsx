@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
-import { auth, offlineEnabled } from "./lib/firebase";
-import { flushPending } from "./lib/local-ledger";
-import { applyLook, applyTheme, readLook, readTheme, requestCacheClear, setNoticeAfterReload, takeNoticeAfterReload } from "./lib/preferences";
-import { setupOfflineShell } from "./lib/offline-shell";
+import { auth } from "./lib/firebase";
+import { applyLook, applyTheme, readLook, readTheme } from "./lib/preferences";
+import { removeOfflineShell } from "./lib/offline-shell";
 import { APP_NAME } from "./lib/config";
-import { isIdleExpired, lastActivity, markActivity, readIdleMinutes, saveIdleMinutes } from "./lib/session";
-import { LOCK_MAX_HOURS, lockEnabled } from "./lib/lock";
-import { LockScreen } from "./app/lock-screen";
+import { isIdleExpired, readIdleMinutes, saveIdleMinutes } from "./lib/session";
 import { requestPasswordReset } from "./lib/auth-actions";
 import { LedgerApp } from "./app/ledger-app";
 import {
@@ -30,35 +27,22 @@ function readEmailAction() {
 }
 
 const initialAction = readEmailAction();
-const initialNotice = takeNoticeAfterReload();
 
 applyTheme(readTheme());
 applyLook(readLook());
-setupOfflineShell(offlineEnabled);
-
-/** Il blocco con impronta può sostituire il logout per inattività, entro LOCK_MAX_HOURS ore. */
-function canLock() {
-  const last = lastActivity();
-  return lockEnabled() && last !== null && Date.now() - last < LOCK_MAX_HOURS * 3_600_000;
-}
+removeOfflineShell();
 
 function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
-  const [locked, setLocked] = useState(false);
   const [action, setAction] = useState(initialAction);
   const [screen, setScreen] = useState<"login" | "forgot">("login");
   const [forgotEmail, setForgotEmail] = useState("");
-  const [notice, setNotice] = useState<AuthNotice | null>(initialNotice ? { tone: "info", text: initialNotice } : null);
+  const [notice, setNotice] = useState<AuthNotice | null>(null);
   const [idleMinutes, setIdleMinutes] = useState(readIdleMinutes);
 
   useEffect(() => onAuthStateChanged(auth, (next) => {
     // Sessione ripristinata dopo troppo tempo (scheda chiusa, PC in standby): si esce subito.
     const minutes = readIdleMinutes();
-    if (next && isIdleExpired(minutes) && canLock()) {
-      setLocked(true);
-      setUser(next);
-      return;
-    }
     if (next && isIdleExpired(minutes)) {
       setNotice({ tone: "info", text: expiredMessage(minutes) });
       signOut(auth).catch(() => setUser(null));
@@ -69,19 +53,6 @@ function App() {
   }), []);
 
   const logout = useCallback(async (reason?: AuthNotice) => {
-    if (offlineEnabled) {
-      // Con l'uso offline la copia locale si cancella quando premi "Esci", ma solo se tutto è già
-      // sincronizzato. Dopo la disconnessione per inattività invece resta: per vedere i dati serve
-      // comunque accedere, e al nuovo accesso si scaricano solo le modifiche invece dell'intero archivio.
-      const synced = await flushPending(3000);
-      if (!synced && !reason && !window.confirm("Alcune modifiche non sono ancora arrivate sul cloud perché sei offline.\n\nSe esci ora restano su questo dispositivo e si sincronizzeranno al prossimo accesso. Vuoi uscire?")) {
-        return;
-      }
-      if (synced && !reason) requestCacheClear();
-      if (reason) setNoticeAfterReload(reason.text);
-      try { await signOut(auth); } finally { window.location.reload(); }
-      return;
-    }
     setNotice(reason ?? null);
     setScreen("login");
     try {
@@ -91,16 +62,9 @@ function App() {
     }
   }, []);
 
-  const idle = useIdleLogout(user && !locked ? idleMinutes : 0, () => {
-    if (canLock()) { setLocked(true); return; }
+  const idle = useIdleLogout(user ? idleMinutes : 0, () => {
     void logout({ tone: "info", text: expiredMessage(idleMinutes) });
   });
-
-  const unlock = useCallback(() => { markActivity(); setLocked(false); }, []);
-  const passwordInstead = useCallback(() => {
-    setLocked(false);
-    void logout({ tone: "info", text: expiredMessage(readIdleMinutes()) });
-  }, [logout]);
 
   function changeIdle(minutes: number) {
     saveIdleMinutes(minutes);
@@ -116,8 +80,6 @@ function App() {
   }
 
   if (user === undefined) return <Splash />;
-
-  if (user && locked) return <LockScreen email={user.email ?? ""} onUnlock={unlock} onPassword={passwordInstead} />;
 
   if (user) {
     return <>

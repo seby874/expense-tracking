@@ -3,16 +3,11 @@
 const THEME_KEY = "et-theme";
 const OFFLINE_KEY = "et-offline";
 const CLEAR_CACHE_KEY = "et-clear-cache";
-const NOTICE_KEY = "et-auth-notice";
 
 export type ThemeMode = "auto" | "light" | "dark";
 
 function local() {
   try { return window.localStorage; } catch { return null; }
-}
-
-function session() {
-  try { return window.sessionStorage; } catch { return null; }
 }
 
 export function readTheme(): ThemeMode {
@@ -42,41 +37,30 @@ export function saveTheme(mode: ThemeMode) {
   applyTheme(mode);
 }
 
-export function readOffline() {
-  return local()?.getItem(OFFLINE_KEY) === "1";
+/** Chiavi delle funzioni rimosse (uso offline, sblocco con impronta, sincronizzazione completa). */
+const LEGACY_KEYS = [OFFLINE_KEY, CLEAR_CACHE_KEY, "et-lock"];
+const LEGACY_PREFIXES = ["et-full-sync:"];
+
+/** true se questo browser ha ancora una copia locale dell'archivio (versioni con "Uso offline") da cancellare. */
+export function legacyCachePending() {
+  const store = local();
+  return store?.getItem(OFFLINE_KEY) === "1" || store?.getItem(CLEAR_CACHE_KEY) === "1";
 }
 
-export function saveOffline(enabled: boolean) {
+/**
+ * Toglie le preferenze delle funzioni rimosse. Con `cacheCleared` false restano i segnali
+ * della copia locale, così la cancellazione si riprova alla prossima apertura.
+ */
+export function removeLegacyPrefs(cacheCleared: boolean) {
+  const store = local();
+  if (!store) return;
+  const keep = cacheCleared ? [] : [OFFLINE_KEY, CLEAR_CACHE_KEY];
   try {
-    if (enabled) local()?.setItem(OFFLINE_KEY, "1");
-    else {
-      local()?.removeItem(OFFLINE_KEY);
-      local()?.setItem(CLEAR_CACHE_KEY, "1");
+    for (const key of Object.keys(store)) {
+      if (keep.includes(key)) continue;
+      if (LEGACY_KEYS.includes(key) || LEGACY_PREFIXES.some((prefix) => key.startsWith(prefix))) store.removeItem(key);
     }
   } catch {}
-}
-
-export function requestCacheClear() {
-  try { local()?.setItem(CLEAR_CACHE_KEY, "1"); } catch {}
-}
-
-export function takeCacheClear() {
-  const store = local();
-  const pending = store?.getItem(CLEAR_CACHE_KEY) === "1";
-  try { store?.removeItem(CLEAR_CACHE_KEY); } catch {}
-  return pending;
-}
-
-/** Messaggio da mostrare nella schermata di accesso dopo un ricaricamento. */
-export function setNoticeAfterReload(text: string) {
-  try { session()?.setItem(NOTICE_KEY, text); } catch {}
-}
-
-export function takeNoticeAfterReload() {
-  const store = session();
-  const text = store?.getItem(NOTICE_KEY) ?? "";
-  try { store?.removeItem(NOTICE_KEY); } catch {}
-  return text;
 }
 
 // ---------------------------------------------------------------- Personalizzazione (per dispositivo)

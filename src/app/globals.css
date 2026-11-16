@@ -1227,12 +1227,6 @@ html.dark[data-accent="slate"] { --accent: #a5bcc7; --accent-hover: #c1d2da; --a
 .warning-notice p { margin: 3px 0 0; font-size: 12px; color: var(--ink); }
 
 /* Blocco */
-.lock-screen { min-height: 100dvh; display: grid; place-items: center; padding: 20px; background: var(--sidebar); }
-.lock-card { display: grid; justify-items: center; gap: 12px; width: min(380px, 100%); padding: 30px 24px; border-radius: 20px; background: var(--surface); text-align: center; box-shadow: 0 20px 60px #0006; }
-.lock-card h1 { margin: 0; font-size: 20px; }
-.lock-card p { margin: 0; font-size: 13px; color: var(--muted); }
-.lock-badge { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 16px; background: var(--accent-pale); color: var(--accent); }
-.lock-button { width: 100%; min-height: 46px; font-size: 15px; }
 
 /* Registro: filtri avanzati, filtri salvati, selezione, gesti */
 .panel-actions { display: flex; flex-wrap: wrap; gap: 8px; }

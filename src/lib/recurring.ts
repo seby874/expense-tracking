@@ -56,6 +56,18 @@ export function dueItems(ledger: Ledger, today: string): DueItem[] {
   }).sort((a, b) => a.date.localeCompare(b.date));
 }
 
+const MAX_ID_LENGTH = 64;
+
+/**
+ * ID fisso del movimento di una scadenza (ricorrente + data prevista). Se la stessa scadenza
+ * viene registrata da due dispositivi, la seconda scrittura trova la voce già esistente
+ * invece di creare un doppione.
+ */
+export function occurrenceId(recurring: Pick<Recurring, "id">, date: string, fallback: () => string): string {
+  const id = `${recurring.id}-${date.replace(/-/g, "")}`;
+  return id.length <= MAX_ID_LENGTH ? id : fallback();
+}
+
 /** Movimento di una scadenza. Per le rate la divisione capitale/interessi si calcola alla data della scadenza. */
 export function occurrenceMovement(recurring: Recurring, date: string, ledger?: Ledger): Movement["value"] {
   const template = recurring.value.template;

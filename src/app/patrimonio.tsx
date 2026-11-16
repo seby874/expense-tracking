@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from "react";
+import { useId, useMemo, type ReactNode } from "react";
 import {
   Archive, ArrowDownLeft, ArrowUpRight, CalendarClock, ChartNoAxesCombined, CircleHelp, HandCoins, Handshake, Landmark, PencilLine, Pencil, Plus, RefreshCw,
   Scale, Target, TrendingUp, Users, WalletCards,
@@ -35,7 +35,7 @@ type Handlers = {
 
 /** Mesi in cui il saldo registrato non coincide con quello calcolato dai movimenti. */
 function ReconcilePanel({ ledger, onAdjust }: { ledger: Ledger; onAdjust: (gap: Gap) => void }) {
-  const gaps = balanceGaps(ledger).filter((gap) => gap.account.value.type === "cash" || gap.account.value.type === "asset");
+  const gaps = useMemo(() => balanceGaps(ledger).filter((gap) => gap.account.value.type === "cash" || gap.account.value.type === "asset"), [ledger]);
   if (!ledger.balances.length) return null;
   return <section className="panel reconcile-panel">
     <PanelTitle title="Riconciliazione" subtitle="Saldi registrati che non tornano con i movimenti degli ultimi mesi." />
@@ -159,10 +159,10 @@ function TwoLineChart({ points }: { points: { month: string; value: number | nul
 }
 
 function InvestmentsTab({ ledger, year, month, onInvestment, onBalance, onContribute }: Handlers & { ledger: Ledger; year: number; month: string }) {
-  const summary = investmentSummary(ledger, month);
+  const summary = useMemo(() => investmentSummary(ledger, month), [ledger, month]);
   const active = summary.rows.filter(({ account }) => !account.value.archived);
   const archived = summary.rows.filter(({ account }) => account.value.archived);
-  const history = investmentHistory(ledger, [`${year - 1}-12`, ...yearMonths(year)]);
+  const history = useMemo(() => investmentHistory(ledger, [`${year - 1}-12`, ...yearMonths(year)]), [ledger, year]);
   const byClass = new Map<string, number>();
   for (const row of active) {
     const key = row.account.value.invest?.assetClass ?? "other";
@@ -170,7 +170,7 @@ function InvestmentsTab({ ledger, year, month, onInvestment, onBalance, onContri
   }
   const allocation = [...byClass.entries()].filter(([, amount]) => amount > 0).sort((a, b) => b[1] - a[1]);
   const allocated = allocation.reduce((total, [, amount]) => total + amount, 0);
-  const gainRate = summary.gain !== null && summary.paid > 0 ? summary.gain / summary.paid : null;
+  const gainRate = summary.gain !== null && summary.paidKnown > 0 ? summary.gain / summary.paidKnown : null;
 
   if (!summary.rows.length) {
     return <section className="panel"><Empty icon={<TrendingUp size={22} />} title="Nessun investimento"

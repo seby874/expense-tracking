@@ -1,5 +1,5 @@
 import {
-  INTEREST_LABEL, accountBalances, todayInRome,
+  INTEREST_LABEL, accountBalances, shiftMonth, todayInRome,
   type Account, type Ledger, type LoanDetails, type Movement, type Recurring,
 } from "./ledger";
 import { nextDate, occurrence } from "./recurring";
@@ -42,9 +42,18 @@ export function debtDetails(account: Account | undefined) {
   return account?.value.type === "debt" ? account.value.debt : undefined;
 }
 
-function previousMonth(month: string) {
-  const [year, value] = month.split("-").map(Number);
-  return value === 1 ? `${year - 1}-12` : `${year}-${String(value - 1).padStart(2, "0")}`;
+/**
+ * Rate del piano già pagate: quelle prima dell'app più una per ogni mese con almeno un rimborso.
+ * Un rimborso extra nello stesso mese di una rata non conta come rata in più.
+ */
+export function installmentsPaid(ledger: Ledger, debtId: string, paidBefore: number, until?: string) {
+  const months = new Set<string>();
+  for (const { value } of ledger.movements) {
+    if (value.type !== "repayment" || value.debtId !== debtId) continue;
+    const month = value.date.slice(0, 7);
+    if (!until || month <= until) months.add(month);
+  }
+  return paidBefore + months.size;
 }
 
 /** Residuo prima di una rata del giorno `date`: ultimo residuo registrato prima di quel mese meno il capitale già rimborsato. */
@@ -123,7 +132,7 @@ export function debtStatus(ledger: Ledger, debt: Account, month = todayInRome().
   let paidCount: number | null = null;
   let endDate: string | null = null;
   if (details?.kind === "loan") {
-    paidCount = Math.min(details.months, details.paidBefore + payments.length);
+    paidCount = Math.min(details.months, installmentsPaid(ledger, debt.id, details.paidBefore, month));
     endDate = occurrence({ frequency: "monthly", every: 1, start: details.firstDate }, details.months - 1);
   }
   const nextSplit = next ? splitRepayment(ledger, debt, next, details?.kind === "loan" ? details.installment : recurring?.value.template.amount ?? 0) : null;
@@ -135,8 +144,8 @@ export function debtStatus(ledger: Ledger, debt: Account, month = todayInRome().
 
 /** Mese in cui registrare il residuo iniziale di un debito nuovo. */
 export function initialSnapshot(details: LoanDetails | { kind: "flexible"; principal: number; start: string }) {
-  if (details.kind === "flexible") return { month: previousMonth(details.start.slice(0, 7)), amount: details.principal };
-  if (details.paidBefore <= 0) return { month: previousMonth(details.firstDate.slice(0, 7)), amount: details.principal };
+  if (details.kind === "flexible") return { month: shiftMonth(details.start.slice(0, 7), -1), amount: details.principal };
+  if (details.paidBefore <= 0) return { month: shiftMonth(details.firstDate.slice(0, 7), -1), amount: details.principal };
   const plan = amortization(details);
   const row = plan[Math.min(details.paidBefore, plan.length) - 1];
   return { month: (row.date ?? details.firstDate).slice(0, 7), amount: row.residual };

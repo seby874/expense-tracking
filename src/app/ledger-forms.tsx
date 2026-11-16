@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, Calculator, Copy, HandCoins, Plus, Repeat, Scale, Split, Star, Trash2, X } from "lucide-react";
 import {
-  ENTRY_TYPES, INTEREST_LABEL, METHOD_LABELS, activeLabels, adjustmentMovement, allTags, balanceId, evaluateAmount, expectedBalance, money, monthEnd, monthLabel, parseMoney, sameName, subcategoryList, titleSuggestions,
+  ENTRY_TYPES, INTEREST_LABEL, METHOD_LABELS, activeLabels, adjustmentMovement, allTags, balanceId, evaluateAmount, expectedBalance, money, monthEnd, monthLabel, parseMoney, sameName, subcategoryList, titleSuggestions, todayInRome,
   type Account, type Balance, type Ledger, type LedgerRecord, type Movement, type MovementType, type Part, type Schedule, type TitleSuggestion,
 } from "../lib/ledger";
 import { debtDetails, linkedRecurring, splitRepayment } from "../lib/debts";
@@ -461,6 +461,8 @@ export function BalanceForm({ busy, error, onSave, account, initialMonth, ledger
   const debt = account.value.type === "debt";
   const investment = account.value.type === "investment";
   const canAdjust = account.value.type === "cash" || account.value.type === "asset";
+  // Per il mese in corso il saldo di un conto è quello di oggi: i movimenti con data futura si aggiungono nella previsione.
+  const currentMonth = canAdjust && month === todayInRome().slice(0, 7);
   const expected = expectedBalance(ledger, account.id, month);
   const recorded = evaluateAmount(amountText);
   const gap = expected && recorded !== null ? recorded - expected.amount : null;
@@ -488,7 +490,7 @@ export function BalanceForm({ busy, error, onSave, account, initialMonth, ledger
     <label>Mese di riferimento
       <input type="month" value={month} min="1900-01" max="2100-12" required onChange={(event) => changeMonth(event.target.value)} />
     </label>
-    <label>{debt ? "Debito residuo a fine mese in euro" : investment ? "Valore a fine mese in euro" : "Saldo a fine mese in euro"}
+    <label>{debt ? "Debito residuo a fine mese in euro" : investment ? "Valore a fine mese in euro" : currentMonth ? "Saldo di oggi in euro" : "Saldo a fine mese in euro"}
       <input name="amount" inputMode="text" placeholder="0,00" required maxLength={40} value={amountText} onChange={(event) => setAmountText(event.target.value)} />
       <AmountPreview text={amountText} />
     </label>
@@ -509,7 +511,9 @@ export function BalanceForm({ busy, error, onSave, account, initialMonth, ledger
       ? "Usa la cifra dell’estratto conto o quella concordata. Comprende le rate di quel mese; le rate dei mesi successivi la riducono in automatico."
       : investment
         ? "Il valore di mercato a fine mese (dall’app della banca o del broker). Versamenti e prelievi dei mesi successivi si sommano a questo valore."
-        : "Da questo saldo partono i movimenti collegati dei mesi successivi. Per un saldo di partenza, usa il mese precedente al primo movimento."}</p>
+        : currentMonth
+          ? "Il saldo che vedi oggi nell’app della banca. La previsione dei prossimi 30 giorni parte da qui e aggiunge i movimenti con data futura."
+          : "Da questo saldo partono i movimenti collegati dei mesi successivi. Per un saldo di partenza, usa il mese precedente al primo movimento."}</p>
     <FormError message={validation || error} />
     <div className="modal-actions">
       {snapshot?.version && <button type="button" className="button danger-quiet" disabled={busy}

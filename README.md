@@ -27,7 +27,6 @@ App personale in italiano per registrare entrate, spese, trasferimenti, saldi de
 - **Colori, icone e ordine** di conti e categorie (Impostazioni → Conti e categorie) e **colore principale** dell’app.
 - **Registro**: filtri avanzati (conto, importo, date, tutti i periodi), **filtri salvati**, **selezione multipla** (categoria, tag, eliminazione) e **gesti** sul telefono (destra = duplica, sinistra = elimina).
 - **Scorciatoie da tastiera**: N nuovo movimento, V spesa veloce, / cerca, 1–5 sezioni, D modalità discreta.
-- **Sblocco con impronta** (WebAuthn): dopo l’inattività l’app si blocca invece di disconnettere; dopo 12 ore serve la password.
 - **Ricomincia da zero**: svuota l’archivio (tutto nel cestino, ripristinabile per 30 giorni) e riparte con conti e categorie iniziali.
 - **Tag liberi** sui movimenti (es. un viaggio), con filtro, totale e riepilogo per tag in Analisi.
 - **Spesa divisa** tra più categorie, anche con una parte anticipata per qualcuno (va al suo credito).
@@ -43,7 +42,8 @@ App personale in italiano per registrare entrate, spese, trasferimenti, saldi de
 - **Movimenti ricorrenti** (settimanali, mensili, annuali, ogni N periodi, con data di fine facoltativa): le scadenze arrivate vengono proposte da registrare, modificare o saltare.
 - **Backup completo** in JSON da scaricare e **ripristinare**; esportazione di movimenti e saldi in CSV per i fogli di calcolo.
 - **Tema** automatico, chiaro o scuro.
-- **Uso offline** facoltativo per dispositivo: copia locale dei dati, scritture in coda senza rete, apertura della pagina tramite service worker; la copia locale si cancella all’uscita.
+- **Nessuna copia dei dati sul dispositivo**: l’archivio vive solo in memoria mentre la pagina è aperta. Le versioni fino alla 1.7.0 avevano «Uso offline» e lo sblocco con impronta: alla prima apertura la copia locale, il service worker e le relative preferenze vengono cancellati.
+- **Conflitti tra dispositivi**: i salvataggi fino a 450 voci avvengono in una transazione che controlla che nessun altro dispositivo abbia cambiato le stesse voci; una scadenza ricorrente ha un ID fisso, quindi non si registra due volte.
 
 ## Struttura
 
@@ -65,13 +65,11 @@ src/
   app/reminders.tsx     promemoria in Panoramica
   app/planning.tsx      budget, obiettivi, previsione, segnalazioni, riepilogo, andamento del patrimonio
   app/style.tsx         colori e icone
-  app/lock-screen.tsx   schermata di blocco
   lib/investments.ts    valore, versato e rendimento degli investimenti
   lib/data-io.ts        esportazione CSV, backup e ripristino
   lib/planning.ts       calcoli di previsione, budget, obiettivi, segnalazioni e riepiloghi
-  lib/lock.ts           sblocco con impronta (WebAuthn)
-  lib/preferences.ts    tema, uso offline e personalizzazione (per dispositivo)
-  lib/offline-shell.ts  registrazione del service worker (public/sw.js)
+  lib/preferences.ts    tema e personalizzazione (per dispositivo)
+  lib/offline-shell.ts  rimozione del service worker delle versioni precedenti (public/sw.js si disinstalla da solo)
   lib/config.ts         nome dell'app e opzioni (reset password, minuti di inattività)
   lib/firebase.ts       configurazione Firebase
   lib/local-ledger.ts   lettura e scrittura su Firestore (solo le modifiche, vedi sotto)
@@ -88,6 +86,7 @@ Serve Node.js 22.12+ (o 24).
 npm install
 npm run dev        # http://localhost:5173
 npm run typecheck
+npm test           # test dei calcoli (Vitest)
 npm run build      # rigenera la cartella docs/
 ```
 
@@ -111,10 +110,9 @@ Il codice pubblicato è visibile a tutti: la configurazione Firebase in `src/lib
 Il piano gratuito concede 50.000 letture, 20.000 scritture e 20.000 eliminazioni al giorno.
 
 - Ogni documento salvato ha `updatedAt` (ora del server). L'app chiede al server solo i documenti più recenti dell'ultimo già visto: **minimo 1 lettura** per controllo, anche se non è cambiato nulla.
-- **Con "Uso offline" attivo** (Impostazioni → Aspetto e dispositivo) la copia resta nel browser: l'intero archivio si scarica solo la prima volta su ogni dispositivo, dopo aver premuto "Esci" e ogni 30 giorni per sicurezza. La disconnessione per inattività non cancella la copia.
-- **Senza "Uso offline"** la copia vive solo in memoria: ogni volta che apri o ricarichi la pagina si rilegge tutto; finché resta aperta si leggono solo le modifiche.
+- La copia vive solo in memoria: ogni volta che apri o ricarichi la pagina si rilegge tutto; finché resta aperta si leggono solo le modifiche (e tutto ogni 30 giorni, per sicurezza).
 - Il controllo al ritorno sull'app avviene al massimo una volta al minuto.
-- Le eliminazioni sono "lapidi" (`deleted: true`) che conservano il contenuto per il cestino: così gli altri dispositivi le ricevono con la lettura incrementale. Dopo 30 giorni il contenuto viene svuotato. Le regole non permettono di cancellare documenti dall'app.
+- Le eliminazioni sono "lapidi" (`deleted: true`) che conservano il contenuto per il cestino: così gli altri dispositivi le ricevono con la lettura incrementale. Dopo 30 giorni il contenuto viene svuotato; dopo altri 60 giorni la lapide vuota viene cancellata davvero, così non si rilegge più. Le regole permettono di cancellare solo le lapidi vuote.
 - **Non cancellare documenti a mano dalla console Firebase**: i dispositivi che li hanno in copia non se ne accorgerebbero fino alla rilettura completa.
 
 Alla prima apertura dopo l'aggiornamento alla 1.4.1 (o successive, se arrivi da una versione precedente) l'app aggiunge `updatedAt` ai documenti esistenti (una scrittura per documento, una volta sola).
