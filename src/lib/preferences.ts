@@ -69,13 +69,13 @@ export type StartScreen = "overview" | "movements" | "accounts" | "reports" | "q
 export type Density = "comfortable" | "compact";
 export type TextSize = "normal" | "large";
 
-export type LookPrefs = { start: StartScreen; discreet: boolean; density: Density; text: TextSize; reminders: boolean; accent: string };
+export type LookPrefs = { start: StartScreen; discreet: boolean; density: Density; text: TextSize; reminders: boolean; accent: string; calm: boolean };
 
 const LOOK_KEY = "et-look";
 const LAST_BACKUP_KEY = "et-last-backup";
 const DISMISS_PREFIX = "et-dismiss:";
 
-const DEFAULT_LOOK: LookPrefs = { start: "overview", discreet: false, density: "comfortable", text: "normal", reminders: true, accent: "green" };
+const DEFAULT_LOOK: LookPrefs = { start: "overview", discreet: false, density: "comfortable", text: "normal", reminders: true, accent: "green", calm: false };
 const ACCENT_KEYS = ["green", "blue", "indigo", "purple", "pink", "orange", "slate"];
 
 export function readLook(): LookPrefs {
@@ -88,6 +88,7 @@ export function readLook(): LookPrefs {
       text: saved.text === "large" ? "large" : "normal",
       reminders: saved.reminders !== false,
       accent: ACCENT_KEYS.includes(saved.accent as string) ? saved.accent as string : "green",
+      calm: saved.calm === true,
     };
   } catch {
     return { ...DEFAULT_LOOK };
@@ -98,6 +99,7 @@ export function readLook(): LookPrefs {
 export function applyLook(look: LookPrefs) {
   document.documentElement.classList.toggle("density-compact", look.density === "compact");
   document.documentElement.classList.toggle("text-large", look.text === "large");
+  document.documentElement.classList.toggle("reduce-motion", look.calm);
   if (look.accent === "green") delete document.documentElement.dataset.accent;
   else document.documentElement.dataset.accent = look.accent;
 }

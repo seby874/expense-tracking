@@ -178,6 +178,12 @@ export function PersonalPanel() {
           <span aria-hidden="true" /><span className="sr-only">Promemoria</span></label>
       </li>
       <li>
+        <span className="security-icon"><Type size={18} /></span>
+        <div><strong>Riduci le animazioni</strong><p>Niente transizioni ed effetti di movimento: l’app risponde più asciutta, utile su telefoni lenti.</p></div>
+        <label className="switch"><input type="checkbox" checked={look.calm} onChange={(event) => update({ calm: event.target.checked })} />
+          <span aria-hidden="true" /><span className="sr-only">Riduci le animazioni</span></label>
+      </li>
+      <li>
         <span className="security-icon"><Keyboard size={18} /></span>
         <div><strong>Scorciatoie da tastiera</strong>
           <p><kbd>N</kbd> nuovo movimento · <kbd>V</kbd> spesa veloce · <kbd>/</kbd> cerca · <kbd>1</kbd>–<kbd>5</kbd> sezioni · <kbd>D</kbd> modalità discreta · <kbd>Esc</kbd> chiude</p></div>

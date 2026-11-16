@@ -1329,3 +1329,4 @@ html.dark[data-accent="slate"] { --accent: #a5bcc7; --accent-hover: #c1d2da; --a
 small { line-height: 1.45; }
 .panel-heading p, .page-heading p { line-height: 1.5; }
 .net-hero strong.net-empty { font-size: clamp(22px, 3vw, 30px); letter-spacing: -.01em; font-weight: 700; color: #ecf9f1; }
+html.reduce-motion *, html.reduce-motion *::before, html.reduce-motion *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
