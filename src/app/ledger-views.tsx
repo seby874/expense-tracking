@@ -788,7 +788,8 @@ function DevicePanel() {
   </section>;
 }
 
-export function Settings({ ledger, onLabel, onExport, onBalancesExport, onBackup, onRestore, onDemo, session, onCommit, busy, onTemplate, trash, demo, onRestoreTrash, onPurgeTrash, onStyle, onReset }: {
+export function Settings({ ledger, onLabel, onExport, onBalancesExport, onBackup, onRestore, onDemo, session, onCommit, busy, onTemplate, trash, demo, onRestoreTrash, onPurgeTrash, onStyle, onReset, extra }: {
+  extra?: ReactNode;
   onStyle: (record: Account | Label) => void; onReset: () => void;
   ledger: Ledger; onLabel: (type: "expense" | "income", label?: Label) => void;
   onExport: () => void; onBalancesExport: () => void; onBackup: () => void; onRestore: () => void; onDemo: () => void; session: SessionInfo;
@@ -821,6 +822,7 @@ export function Settings({ ledger, onLabel, onExport, onBalancesExport, onBackup
     </section>
     <TrashPanel ledger={ledger} trash={trash} busy={busy} demo={demo} onRestore={onRestoreTrash} onPurge={onPurgeTrash} />
     <TagsPanel ledger={ledger} onCommit={onCommit} busy={busy} />
+    {extra}
     <ResetPanel demo={demo} onReset={onReset} />
   </>;
 }

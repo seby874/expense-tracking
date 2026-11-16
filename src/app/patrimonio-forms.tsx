@@ -179,6 +179,8 @@ export function DebtEditor({ ledger, id, initial, busy, error, onCommit, onArchi
         kind: "loan", principal: loan.principal!, tan: loan.tan!, taeg: loan.taeg, months: loan.months, firstDate: draft.firstDate,
         installment: loan.installment, fee: loan.fee!, paidBefore: loanInit && hasBalances ? loanInit.paidBefore : loan.paidBefore,
         accountId, interestLabelId: field(data, "interest-label") || INTEREST_LABEL,
+        ...(data.get("home") === "on" ? { home: true } : {}), ...(data.get("consumer") === "on" ? { consumer: true } : {}),
+        ...(data.get("variable") === "on" ? { variable: true } : {}),
       };
     } else {
       const principal = parseMoney(field(data, "flex-principal"));
@@ -256,6 +258,14 @@ export function DebtEditor({ ledger, id, initial, busy, error, onCommit, onArchi
           <select name="interest-label" defaultValue={loanInit?.interestLabelId ?? INTEREST_LABEL}>
             {expenseLabels.map((label) => <option key={label.id} value={label.id}>{label.value.name}</option>)}
           </select></label>
+      </div>
+      <div className="favorite-bar wrap">
+        <label className="check-row compact"><input type="checkbox" name="home" defaultChecked={!!loanInit?.home} />
+          <span><strong>Mutuo prima casa</strong><small>Nessuna penale di estinzione; interessi detraibili (Dichiarazione).</small></span></label>
+        <label className="check-row compact"><input type="checkbox" name="consumer" defaultChecked={!!loanInit?.consumer} />
+          <span><strong>Credito ai consumatori</strong><small>Prestito personale, auto…: penale di estinzione dai parametri di legge.</small></span></label>
+        <label className="check-row compact"><input type="checkbox" name="variable" defaultChecked={!!loanInit?.variable} />
+          <span><strong>Tasso variabile</strong><small>Il simulatore propone scenari di tasso.</small></span></label>
       </div>
       <LoanExplainer draft={draft} />
       <label className="check-row">

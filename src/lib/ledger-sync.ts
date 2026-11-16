@@ -70,6 +70,8 @@ export class LedgerMirror<T extends Stamp = Stamp> {
   private trash = new Map<string, TrashItem>();
   /** Lapidi vuote (eliminazioni definitive) con l'ora dell'eliminazione: dopo un po' si cancellano davvero. */
   private emptied = new Map<string, number>();
+  /** Documenti non validi (ignorati): il controllo di salute li segnala. */
+  readonly invalid = new Set<string>();
   /** Documenti senza `updatedAt`, salvati da versioni precedenti dell'app. */
   readonly legacy = new Set<string>();
   cursor: T | null = null;
@@ -78,10 +80,16 @@ export class LedgerMirror<T extends Stamp = Stamp> {
     return this.entries.size;
   }
 
+  /** Documenti letti da Firestore, lapidi comprese (per stimare le letture). */
+  get documents() {
+    return this.entries.size;
+  }
+
   reset() {
     this.entries.clear();
     this.trash.clear();
     this.emptied.clear();
+    this.invalid.clear();
     this.legacy.clear();
     this.cursor = null;
   }
@@ -98,6 +106,7 @@ export class LedgerMirror<T extends Stamp = Stamp> {
 
       if (data.deleted === true) {
         this.entries.set(id, { record: null });
+        this.invalid.delete(id);
         const deletedAt = isStamp(updatedAt) ? updatedAt.seconds * 1000 : null;
         const kept = recordSchema.safeParse({ kind: data.kind, id: data.id, version: data.version, value: data.value });
         if (kept.success) this.trash.set(id, { record: kept.data, deletedAt });
@@ -110,7 +119,8 @@ export class LedgerMirror<T extends Stamp = Stamp> {
       this.emptied.delete(id);
       // Un documento malformato non deve bloccare l'intero archivio.
       const parsed = recordSchema.safeParse(data);
-      if (!parsed.success) console.warn("Voce ignorata perché non valida:", id);
+      if (!parsed.success) { console.warn("Voce ignorata perché non valida:", id); this.invalid.add(id); }
+      else this.invalid.delete(id);
       this.entries.set(id, { record: parsed.success ? parsed.data : null });
     }
   }
@@ -126,6 +136,7 @@ export class LedgerMirror<T extends Stamp = Stamp> {
       this.entries.delete(id);
       this.trash.delete(id);
       this.emptied.delete(id);
+      this.invalid.delete(id);
       this.legacy.delete(id);
     }
   }

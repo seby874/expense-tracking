@@ -1,31 +1,43 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  BarChart3, CalendarDays, ChevronDown, ChevronRight, CircleAlert, CircleCheck, CloudCheck, CloudOff, Eye, EyeOff,
-  FlaskConical, LayoutDashboard, List, LogOut, Plus, Settings2, Undo2, WalletCards,
+  BarChart3, CalendarDays, ChevronDown, Timer, ChevronRight, CircleAlert, CircleCheck, CloudCheck, CloudOff, Eye, EyeOff,
+  DatabaseBackup, FlaskConical, LayoutDashboard, List, LogOut, Plus, Settings2, Undo2, WalletCards,
 } from "lucide-react";
 import {
-  NO_VERSION, INITIAL_YEAR, MONTHS, adjustmentMovement, deriveLedger, lastRecordedMonth, monthLabel, periodOf, recordSchema, setDiscreet, setPeriodStart, subcategoryList, templateFrom, templateMovement,
-  money, newId, todayInRome, type Account, type Balance, type Budget, type Gap, type Goal, type Label, type LedgerRecord, type Movement, type Mutation, type Recurring, type Template,
+  NO_VERSION, MONTHS, adjustmentMovement, deriveLedger, lastRecordedMonth, monthLabel, periodOf, recordSchema, setDiscreet, setPeriodStart, subcategoryList, templateFrom, templateMovement,
+  money, newId, todayInRome, type Account, type Balance, type Budget, type Gap, type Deadline, type Goal, type Label, type LedgerRecord, type Movement, type Mutation, type Recurring, type Template,
 } from "../lib/ledger";
 import type { TrashItem } from "../lib/ledger-sync";
-import { markBackup, readLook, resetDevicePrefs } from "../lib/preferences";
+import { readLook, resetDevicePrefs } from "../lib/preferences";
 import { BudgetEditor, BudgetList, ForecastPanel, GoalCards, GoalEditor, InsightsPanel, SummaryDialog } from "./planning";
 import { ResetDialog, StyleDialog } from "./settings-extra";
 import { TRANSACTION_LIMIT, readLedger, writeLedger } from "../lib/local-ledger";
 import { sampleLedger } from "../lib/ledger-demo";
 import { BALANCE_HEADER, MOVEMENT_HEADER, backupDocument, balanceRows, csvDocument, downloadFile, movementRows } from "../lib/data-io";
-import { dueDates, dueItems, nextDate, occurrenceId, occurrenceMovement, type DueItem } from "../lib/recurring";
+import { dueDates, dueItems, nextDate, occurrence, occurrenceId, occurrenceMovement, type DueItem } from "../lib/recurring";
 import { BalanceForm, FormError, Modal, MovementForm, type MovementResult } from "./ledger-forms";
 import { Movements, Overview, PanelTitle, Reports, Settings, type SessionInfo } from "./ledger-views";
 import { Patrimonio, type PatrimonioTab } from "./patrimonio";
 import { CreditEditor, DebtEditor, InvestmentEditor } from "./patrimonio-forms";
-import { linkedRecurring, repaymentFor } from "../lib/debts";
+import { installmentsPaid, linkedRecurring, repaymentFor } from "../lib/debts";
+import { LoanSimulator } from "./loan-sim";
 import { AccountEditor, ArchiveDialog, LabelEditor, RemoveDialog } from "./manage";
 import { DuePanel, RecurringPanel } from "./recurring";
 import { RestoreDialog, TRASH_DAYS, visibleTrash } from "./settings-extra";
 import { QuickEntry } from "./quick-entry";
+import { ArchivePanel, BackupPanel, DeductionMapPanel, ModulesPanel, ParamsPanel, PeoplePanel, settingsAction } from "./settings-v2";
+import { FundSettingsPanel, FundTab } from "./fund";
+import { FixedView } from "./fixed";
+import { AnnualReportView, CalendarView, DeadlinesView, DossierPanel, HealthPanel, OverviewAlerts, ProjectionTab, YoyView } from "./planning-v2";
+import { healthChecks, healthDue, markHealthSeen, snoozeHealth, type HealthCheck } from "../lib/health";
+import { moduleOn } from "../lib/params";
+import type { ModuleKey } from "../lib/ledger";
+import { AnalysisTabs, RefundsPanel, TaxView, type AnalysisTab } from "./analysis";
 import { Reminders } from "./reminders";
 import { APP_NAME } from "../lib/config";
+import { archiveActions, archivedYearOf, reopenActions } from "../lib/archive";
+import { backupDue as backupDueNow, makeBackup, markBackupDone, readBackupPrefs } from "../lib/backup/schedule";
+import { folderPermission, savedFolder, writeToFolder } from "../lib/backup/folder";
 import { BrandName, Mark } from "./brand";
 
 const SECTIONS = {
@@ -33,14 +45,21 @@ const SECTIONS = {
   movements: { title: "Movimenti", icon: List },
   accounts: { title: "Patrimonio", icon: WalletCards },
   reports: { title: "Analisi", icon: BarChart3 },
+  calendar: { title: "Calendario", icon: CalendarDays },
+  deadlines: { title: "Scadenze", icon: Timer },
   settings: { title: "Impostazioni", icon: Settings2 },
 } as const;
+
+/** Sezioni che dipendono da un modulo (spente = nascoste dal menu). */
+const SECTION_MODULES: Partial<Record<keyof typeof SECTIONS, ModuleKey>> = { calendar: "calendar", deadlines: "deadlines" };
 
 const SECTION_COPY = {
   overview: "Entrate, spese e patrimonio in un unico riepilogo.",
   movements: "Registra, cerca e aggiorna entrate, spese e trasferimenti.",
   accounts: "Conti, investimenti, crediti e debiti: quanto possiedi e quanto devi.",
   reports: "Scopri come si distribuiscono entrate e spese e confronta i mesi.",
+  calendar: "Rate, ricorrenti, accrediti, vincoli e scadenze del mese.",
+  deadlines: "Revisione, documenti, garanzie e contratti: non dimenticare nulla.",
   settings: "Categorie, sicurezza della sessione e copia dei tuoi dati.",
 };
 
@@ -71,7 +90,8 @@ type EditForm =
   | { type: "reset" }
   | { type: "template"; id: string; initial?: Template }
   | { type: "credit"; id: string; initial?: Account }
-  | { type: "quick"; kind: "expense" | "income" };
+  | { type: "quick"; kind: "expense" | "income" }
+  | { type: "simulate"; debt: Account };
 type Form =
   | EditForm
   | { type: "delete"; record: Movement | Balance | Recurring; back: EditForm }
@@ -137,16 +157,18 @@ const LOOK = readLook();
 const DAY_MS = 86_400_000;
 
 type Toast = { text: string; undo?: Mutation[] };
-type CommitOptions = { closeForm?: boolean; jump?: boolean; undoable?: boolean; noUndo?: boolean };
+type CommitOptions = { closeForm?: boolean; jump?: boolean; undoable?: boolean; noUndo?: boolean; allowArchived?: boolean };
 
 export function LedgerApp({ session }: { session: SessionInfo }) {
   const [section, setSection] = useState<Section>(LOOK.start === "quick" ? "overview" : LOOK.start);
   const [hidden, setHidden] = useState(LOOK.discreet);
   const [trash, setTrash] = useState<TrashItem[]>([]);
+  // Documenti letti da Firestore e voci non valide: servono al controllo di salute e all'archivio.
+  const [storeInfo, setStoreInfo] = useState<{ documents: number; invalid: string[] }>({ documents: 0, invalid: [] });
   // Modalità discreta: money() la legge mentre la pagina si disegna.
   setDiscreet(hidden);
   const [personalPeriod, setPersonalPeriod] = useState(DEFAULT_PERIOD);
-  const [examplePeriod, setExamplePeriod] = useState("2027-03");
+  const [examplePeriod, setExamplePeriod] = useState(DEFAULT_PERIOD);
   const [records, setRecords] = useState<LedgerRecord[]>([]);
   const [example, setExample] = useState<LedgerRecord[] | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -157,6 +179,10 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   const [toast, setToastState] = useState<Toast | null>(null);
   const [progress, setProgress] = useState("");
   const [patrimonioTab, setPatrimonioTab] = useState<PatrimonioTab>("accounts");
+  const [analysisTab, setAnalysisTab] = useState<AnalysisTab>("period");
+  const [reportYear, setReportYear] = useState<number | null>(null);
+  // Controllo di salute: in Panoramica alla prima apertura del mese.
+  const [healthVisible, setHealthVisible] = useState(() => healthDue(todayInRome()));
   const online = useOnline();
   const reading = useRef(0);
   const lastLoad = useRef(0);
@@ -177,11 +203,10 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   const month = periodMonth(period, lastRecordedMonth(ledger));
   const years = useMemo(() => {
     const all = new Set<number>([year, ...Array.from({ length: 7 }, (_, i) => CURRENT_YEAR - 5 + i)]);
-    if (demo) all.add(INITIAL_YEAR);
     for (const { value } of ledger.movements) all.add(Number(value.date.slice(0, 4)));
     for (const { value } of ledger.balances) all.add(Number(value.month.slice(0, 4)));
     return [...all].sort((a, b) => a - b);
-  }, [ledger, year, demo]);
+  }, [ledger, year]);
 
   useEffect(() => {
     try {
@@ -218,6 +243,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       if (request === reading.current) {
         setRecords(current.records);
         setTrash(current.trash);
+        setStoreInfo({ documents: current.documents, invalid: current.invalid });
         setStatus("ready");
         setLoadError("");
       }
@@ -236,6 +262,20 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  // Backup automatico: all'apertura, se è scaduto. Senza cartella (telefono) serve un tocco.
+  const [backupDue, setBackupDue] = useState(false);
+  const backupChecked = useRef(false);
+  useEffect(() => {
+    if (backupChecked.current || status !== "ready" || demo) return;
+    backupChecked.current = true;
+    if (!backupDueNow(readBackupPrefs(), todayInRome())) return;
+    void (async () => {
+      const folder = await savedFolder();
+      if (folder && (await folderPermission(folder)) === "granted") await runBackup(false);
+      else setBackupDue(true);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, demo]);
   // Al ritorno della connessione si ricarica l'archivio (non al primo avvio).
   const wasOnline = useRef(online);
   useEffect(() => {
@@ -301,7 +341,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
       const key = event.key.toLowerCase();
-      const order = Object.keys(SECTIONS) as Section[];
+      const order = (Object.keys(SECTIONS) as Section[]).filter((item) => !SECTION_MODULES[item] || moduleOn(ledger.settings, SECTION_MODULES[item]!));
       if (key === "n" && canEdit) { event.preventDefault(); newMovement(); }
       else if (key === "v" && canEdit) { event.preventDefault(); quick("expense"); }
       else if (key === "/") {
@@ -324,7 +364,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       void load();
     } else {
       setExample(sampleLedger());
-      setExamplePeriod("2027-03");
+      setExamplePeriod(DEFAULT_PERIOD);
     }
     setToast("");
     navigate("overview");
@@ -426,6 +466,68 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       ? { type: "transfer", date: today, title: `Restituzione da ${credit.value.name}`.slice(0, 160), amount: 0, accountId: credit.id, toAccountId: cash?.id ?? "", notes: "" }
       : { type: "transfer", date: today, title: `Prestito a ${credit.value.name}`.slice(0, 160), amount: 0, accountId: cash?.id ?? "", toAccountId: credit.id, notes: "" } });
   }
+  /** Deposito o prelievo su un conto (fondo di emergenza): trasferimento dal/verso un altro conto di liquidità. */
+  function fundMove(account: Account, direction: "in" | "out") {
+    const other = ledger.accounts.find((item) => item.id !== account.id && item.value.type === "cash" && !item.value.archived);
+    open({ type: "movement", id: newId(), preset: {
+      type: "transfer", date: today, amount: 0, notes: "",
+      title: `${direction === "in" ? "Deposito su" : "Prelievo da"} ${account.value.name}`.slice(0, 160),
+      accountId: direction === "in" ? other?.id ?? "" : account.id, toAccountId: direction === "in" ? account.id : other?.id ?? "",
+    }, hint: direction === "out" ? "Scrivi il motivo del prelievo nelle note: lo ritrovi nello storico del fondo." : undefined });
+  }
+
+  /** Accredito degli interessi (importo netto stimato, da correggere con l'estratto conto). */
+  function depositInterest(account: Account, amount: number) {
+    const label = ledger.labels.find((item) => item.id === "other-income") ?? ledger.labels.find((item) => item.value.type === "income");
+    open({ type: "movement", id: newId(), preset: {
+      type: "income", date: today, amount, notes: "Interessi netti (ritenuta e bollo già tolti)", title: `Interessi ${account.value.name}`.slice(0, 160),
+      accountId: account.id, labelId: label?.id ?? "other-income",
+    }, hint: "Importo stimato: correggilo con la cifra dell’estratto conto." });
+  }
+
+  /** Trasforma una spesa che si ripete in un ricorrente mensile (abbonamento), dalla prossima scadenza. */
+  function makeRecurring(movement: Movement) {
+    const start = occurrence({ frequency: "monthly", every: 1, start: movement.value.date }, 1) ?? movement.value.date;
+    const { origin: _origin, extra: _extra, ...template } = movement.value;
+    void commit([{ op: "save", record: { kind: "recurring", id: newId(), version: null, value: {
+      template: { ...template, date: start } as Movement["value"],
+      schedule: { frequency: "monthly", every: 1, start, end: "", done: 0 },
+      fixed: { kind: "subscription", status: "active", since: movement.value.date },
+    } } }], `«${movement.value.title}» ora è un ricorrente mensile.`, { closeForm: false });
+  }
+
+  /** Versamento extra su un finanziamento: tutto capitale, nessun interesse. */
+  function registerExtraRepayment(debt: Account, amount: number) {
+    const details = debt.value.debt;
+    void commit([{ op: "save", record: { kind: "movement", id: newId(), version: null, value: {
+      type: "repayment", date: today, title: `Estinzione parziale ${debt.value.name}`.slice(0, 160), amount, principal: amount, interest: 0,
+      debtId: debt.id, accountId: details?.accountId ?? null, labelId: details?.kind === "loan" ? details.interestLabelId : "interest",
+      notes: "Versamento extra (estinzione anticipata parziale)",
+    } } }], "Versamento extra registrato. Se la banca ha ricalcolato rata o durata, usa «Applica» sullo scenario giusto.", { closeForm: false });
+  }
+
+  /** Nuova rata e durata residua dopo un'estinzione parziale o una rinegoziazione: aggiorna il debito e le rate ricorrenti. */
+  function applyLoanPlan(debt: Account, installment: number, remaining: number) {
+    const details = debt.value.debt;
+    if (details?.kind !== "loan") return;
+    const paid = installmentsPaid(ledger, debt.id, details.paidBefore);
+    const months = Math.min(600, paid + remaining);
+    const end = occurrence({ frequency: "monthly", every: 1, start: details.firstDate }, months - 1) ?? "";
+    const actions: Mutation[] = [{ op: "save", record: { ...debt, value: { ...debt.value, debt: { ...details, installment, months } } } }];
+    const linked = linkedRecurring(ledger, debt.id);
+    if (linked) actions.push({ op: "save", record: { ...linked, value: { ...linked.value, template: { ...linked.value.template, amount: installment } as Movement["value"],
+      schedule: { ...linked.value.schedule, end } } } });
+    void commit(actions, `Piano aggiornato: rata ${money(installment)}, fine ${end ? monthLabel(end.slice(0, 7)) : "—"}.`);
+  }
+
+  /** Dalla scadenza alla spesa (es. il bollo pagato): modulo del movimento già compilato. */
+  function deadlineExpense(deadline: Deadline) {
+    const label = ledger.labels.find((item) => item.value.type === "expense" && item.id === "fees") ?? ledger.labels.find((item) => item.value.type === "expense");
+    open({ type: "movement", id: newId(), preset: {
+      type: "expense", date: today, title: deadline.value.title, amount: 0, notes: "", accountId: null, labelId: label?.id ?? "other-expenses", subcategory: "", method: "",
+    }, hint: "Inserisci l’importo pagato." });
+  }
+
   function contribute(investment: Account) {
     const from = ledger.accounts.find((account) => account.value.type === "cash" && !account.value.archived);
     open({ type: "movement", id: newId(), preset: {
@@ -443,6 +545,12 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   /** Applica una o più scritture. Una sola scrittura usa il controllo dei conflitti tra dispositivi. */
   async function commit(input: Mutation[], message: string, options: CommitOptions = {}) {
     if (writing.current || !input.length) return false;
+    const lockedYear = options.allowArchived ? null : archivedYearOf(ledger, input);
+    if (lockedYear !== null) {
+      const text = `Il ${lockedYear} è archiviato (sola lettura): riaprilo in Impostazioni → Archivio per modificarlo.`;
+      if (form) setFormError(text); else setToast(text);
+      return false;
+    }
     const known = new Map(currentRecords.map((record) => [`${record.kind}:${record.id}`, record]));
     // Le eliminazioni conservano il contenuto nel cestino (trash: {} = eliminazione definitiva).
     const actions: Mutation[] = input.map((action) => {
@@ -650,6 +758,15 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       items.length === 1 ? "Voce eliminata definitivamente." : `${items.length} voci eliminate definitivamente.`, { closeForm: false, noUndo: true });
   }
 
+  /** Archivia un anno chiuso: le sue voci diventano pochi documenti (meno letture), in sola lettura. */
+  function archiveYear(year: number) {
+    void commit(archiveActions(ledger, year), `Il ${year} è archiviato.`, { closeForm: false, noUndo: true, allowArchived: true });
+  }
+
+  function reopenYear(year: number) {
+    void commit(reopenActions(ledger, year), `Il ${year} è di nuovo modificabile.`, { closeForm: false, noUndo: true, allowArchived: true });
+  }
+
   function exportMovements(items: Movement[], all = false) {
     downloadFile(`${FILE_PREFIX}-${demo ? "esempio-" : ""}movimenti${all ? "" : "-" + period}.csv`,
       csvDocument(MOVEMENT_HEADER, movementRows(ledger, items)), "text/csv;charset=utf-8");
@@ -659,10 +776,35 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
     downloadFile(`${FILE_PREFIX}-${demo ? "esempio-" : ""}saldi.csv`, csvDocument(BALANCE_HEADER, balanceRows(ledger)), "text/csv;charset=utf-8");
   }
 
-  function exportBackup() {
-    if (!demo) markBackup();
-    downloadFile(`${FILE_PREFIX}-${demo ? "esempio-" : ""}backup-${today}.json`, backupDocument(currentRecords), "application/json");
+  /**
+   * Backup completo (.zip, o .etbackup cifrato con la password delle Impostazioni).
+   * Con una cartella scelta (PC) si salva lì con la rotazione; altrimenti si scarica.
+   * `ask` = l'utente ha premuto un pulsante: si può chiedere il permesso sulla cartella.
+   */
+  async function runBackup(ask: boolean) {
+    if (demo) {
+      downloadFile(`${FILE_PREFIX}-esempio-backup-${today}.json`, backupDocument(currentRecords), "application/json");
+      return;
+    }
+    try {
+      const prefs = readBackupPrefs();
+      const backup = await makeBackup(currentRecords, ledger, prefs.password, today);
+      const folder = await savedFolder();
+      if (folder && (await folderPermission(folder, ask)) === "granted") {
+        const removed = await writeToFolder(folder, backup.name, backup.data);
+        setToast(`Backup salvato nella cartella «${folder.name}»${removed ? ` (${removed} vecchi eliminati)` : ""}.`);
+      } else {
+        downloadFile(backup.name, backup.data, backup.encrypted ? "application/octet-stream" : "application/zip");
+        if (folder && !ask) setToast("Backup scaricato: riautorizza la cartella dei backup in Impostazioni.");
+      }
+      markBackupDone(today);
+      setBackupDue(false);
+    } catch (error) {
+      setToast(error instanceof Error ? `Backup non riuscito: ${error.message}` : "Backup non riuscito.");
+    }
   }
+
+  function exportBackup() { void runBackup(true); }
 
   const sectionTitle = SECTIONS[section].title;
   const presetDebt = form?.type === "movement" && form.preset?.type === "repayment" ? ledger.accounts.find((account) => account.id === (form.preset as { debtId: string }).debtId) : undefined;
@@ -688,12 +830,30 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
     : form?.type === "reset" ? "Ricomincia da zero"
     : form?.type === "credit" ? (form.initial ? "Modifica credito" : "Nuovo credito")
     : form?.type === "quick" ? (form.kind === "income" ? "Entrata veloce" : "Spesa veloce")
+    : form?.type === "simulate" ? `Simula estinzione · ${form.debt.value.name}`
     : form?.type === "archive" ? (form.target.value.archived ? "Ripristina" : "Archivia") + " · " + form.target.value.name
     : form?.type === "remove" ? "Elimina · " + form.target.value.name
     : "Elimina voce";
   const canEdit = demo || status === "ready";
   const demoButton = <button className="text-button example-button" type="button" onClick={toggleDemo}><FlaskConical size={15} /> Esplora con esempi</button>;
   const sharedView = { ledger, year, period, month, monthChange: setPeriod };
+  const settingsCommit = (actions: Mutation[], message: string) => { void commit(actions, message, { closeForm: false }); };
+  const health = useMemo(() => (status === "ready" && !demo ? healthChecks(ledger, today, {
+    documents: storeInfo.documents, invalid: storeInfo.invalid.length, backup: readBackupPrefs(),
+    trash: { count: visibleTrash(trash).length, oldestDays: (() => {
+      const oldest = visibleTrash(trash).reduce<number | null>((min, item) => (item.deletedAt !== null && (min === null || item.deletedAt < min) ? item.deletedAt : min), null);
+      return oldest === null ? null : Math.max(0, Math.ceil(TRASH_DAYS - (Date.now() - oldest) / DAY_MS));
+    })() },
+  }) : []), [ledger, today, storeInfo, trash, status, demo]);
+  function healthAction(check: HealthCheck) {
+    if (check.action === "backup") exportBackup();
+    else if (check.action === "balance" && check.account) editBalance(check.account);
+    else if (check.action === "fund") { setPatrimonioTab("fund"); navigate("accounts"); }
+    else if (check.action === "fixed") { setAnalysisTab("fixed"); navigate("reports"); }
+    else if (check.action === "deadlines") navigate("deadlines");
+    else if (check.action === "movements") navigate("movements");
+    else navigate("settings");
+  }
   const commitProps = { busy, error: formError, onCommit: (actions: Mutation[], message: string) => { void commit(actions, message); } };
   const extras = {
     budgets: <section className="panel budget-panel"><PanelTitle title="Budget" subtitle={period.length === 4 ? `Anno ${period}` : monthLabel(period)}
@@ -719,7 +879,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       </button>
       <div className="nav-label">IL TUO SPAZIO</div>
       <nav className="main-nav" aria-label="Menu principale">
-        {(Object.keys(SECTIONS) as Section[]).map((key) => {
+        {(Object.keys(SECTIONS) as Section[]).filter((key) => !SECTION_MODULES[key] || moduleOn(ledger.settings, SECTION_MODULES[key]!)).map((key) => {
           const { icon: Icon, title } = SECTIONS[key];
           return <button className="nav-button" type="button" key={key} aria-current={section === key ? "page" : undefined}
             onClick={() => navigate(key)} aria-label={title}>
@@ -765,31 +925,60 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
 
         {demo && <div className="notice example-notice"><FlaskConical size={19} /><div><strong>Stai usando dati di esempio</strong>
           <span>Le modifiche di prova si azzerano quando esci.</span></div><button className="button secondary" type="button" onClick={toggleDemo}>Esci dalla prova</button></div>}
+        {!demo && backupDue && <div className="notice reload-notice"><DatabaseBackup size={19} /><div><strong>È ora del backup</strong>
+          <span>Crea il file di backup dei tuoi dati (cambia frequenza e cartella in Impostazioni → Backup).</span></div>
+          <button type="button" className="button secondary" disabled={busy} onClick={exportBackup}>Fai il backup</button>
+          <button type="button" className="text-button" onClick={() => setBackupDue(false)}>Più tardi</button></div>}
         {!demo && status === "loading" && <p className="loading-status" role="status">Apertura dell’archivio…</p>}
         {!demo && status === "error" && <div className="notice error-notice" role="alert"><CircleAlert size={19} /><div><strong>Archivio non disponibile</strong><span>{loadError}</span></div>
           <button type="button" className="button secondary" onClick={() => { setStatus("loading"); void load(); }}>Riprova</button></div>}
 
         {section === "overview" && <Overview {...sharedView} onEdit={editMovement} onNew={newMovement}
           onView={navigate} onBalance={(account) => editBalance(account)} demoAction={!demo && !ledger.movements.length ? demoButton : undefined}
-          due={canEdit && <>{reminders}<DuePanel items={due} today={today} busy={busy}
+          due={canEdit && <>{!demo && healthVisible && moduleOn(ledger.settings, "health") && <HealthPanel checks={health} compact onAction={healthAction}
+            onSeen={() => { markHealthSeen(today); setHealthVisible(false); }} onSnooze={() => { snoozeHealth(today); setHealthVisible(false); }} />}
+            {!demo && <OverviewAlerts ledger={ledger} today={today} onOpenDeadlines={() => navigate("deadlines")}
+            onOpenReport={(reportFor) => { setReportYear(reportFor); setAnalysisTab("reports"); navigate("reports"); }} />}{reminders}<DuePanel items={due} today={today} busy={busy}
             onRegister={(item) => { void registerOccurrence(item); }} onSkip={skipOccurrence} onRegisterAll={registerAll}
             onEdit={(item) => open({ type: "occurrence", item })} /></>} extras={extras} />}
         {section === "movements" && <>
           {canEdit && <DuePanel items={due} today={today} busy={busy}
             onRegister={(item) => { void registerOccurrence(item); }} onSkip={skipOccurrence} onRegisterAll={registerAll}
             onEdit={(item) => open({ type: "occurrence", item })} />}
+          {canEdit && <RefundsPanel ledger={ledger} today={today} busy={busy}
+            onCommit={(actions, message) => { void commit(actions, message, { closeForm: false }); }} />}
           <Movements key={period} {...{ ledger, period }} onEdit={editMovement} onNew={newMovement} onExport={exportMovements} busy={busy}
             onCommit={(actions, message) => { void commit(actions, message, { closeForm: false }); }} onSwipe={swipe} />
           <RecurringPanel ledger={ledger} onNew={() => editRecurring()} onEdit={editRecurring} />
         </>}
-        {section === "accounts" && <Patrimonio ledger={ledger} year={year} month={month} monthChange={setPeriod}
+        {section === "calendar" && <CalendarView ledger={ledger} today={today} />}
+        {section === "deadlines" && <DeadlinesView ledger={ledger} today={today} busy={busy} onCommit={settingsCommit} onCreateExpense={deadlineExpense} />}
+        {section === "accounts" && <Patrimonio ledger={ledger} onSimulate={(debt) => open({ type: "simulate", debt })}
+          projection={moduleOn(ledger.settings, "projection") ? <ProjectionTab ledger={ledger} today={today} busy={busy} onCommit={settingsCommit}
+            settingsAction={(change) => settingsAction(ledger, change)} /> : undefined}
+          fund={moduleOn(ledger.settings, "fund") ? <FundTab ledger={ledger} today={today} busy={busy} onCommit={settingsCommit}
+            onMove={fundMove} onInterest={depositInterest} onSettings={() => navigate("settings")} /> : undefined} year={year} month={month} monthChange={setPeriod}
           tab={patrimonioTab} onTab={setPatrimonioTab} onAccount={editAccount} onBalance={(account) => editBalance(account)} onAdjust={adjust} onGoal={editGoal} today={today}
           onInvestment={editInvestment} onDebt={editDebt} onRepay={repay} onContribute={contribute} onCredit={editCredit} onCreditMove={creditMove} />}
-        {section === "reports" && <Reports {...{ ledger, year, period, today }} onBudget={editBudget} onSummary={() => open({ type: "summary", period })} />}
+        {section === "reports" && <AnalysisTabs ledger={ledger} tab={analysisTab} onTab={setAnalysisTab} views={{
+          period: <Reports {...{ ledger, year, period, today }} onBudget={editBudget} onSummary={() => open({ type: "summary", period })} />,
+          tax: <TaxView ledger={ledger} year={year} />,
+          yoy: <YoyView ledger={ledger} today={today} />,
+          reports: <AnnualReportView key={reportYear ?? "last"} ledger={ledger} today={today} year={reportYear ?? undefined} />,
+          fixed: <FixedView ledger={ledger} today={today} year={year} busy={busy} onCommit={settingsCommit}
+            onNewRecurring={() => editRecurring()} onMakeRecurring={makeRecurring} />,
+        }} />}
         {section === "settings" && <Settings ledger={ledger} onLabel={editLabel} onExport={() => exportMovements(ledger.movements, true)}
           onBalancesExport={exportBalances} onBackup={exportBackup} onRestore={() => open({ type: "restore" })} onDemo={toggleDemo} session={session}
           onTemplate={editTemplate} trash={trash} demo={demo} onRestoreTrash={restoreTrash} onPurgeTrash={purgeTrash}
           onStyle={editStyle} onReset={() => open({ type: "reset" })}
+          extra={<>{!demo && moduleOn(ledger.settings, "health") && <HealthPanel checks={health} onAction={healthAction} />}<ModulesPanel ledger={ledger} busy={busy} demo={demo} onCommit={settingsCommit} />
+            <PeoplePanel ledger={ledger} today={today} busy={busy} onCommit={settingsCommit} />
+            {moduleOn(ledger.settings, "fund") && <FundSettingsPanel ledger={ledger} busy={busy} onCommit={settingsCommit} settingsAction={(change) => settingsAction(ledger, change)} />}
+            <ParamsPanel ledger={ledger} today={today} busy={busy} onCommit={settingsCommit} />
+            <DeductionMapPanel ledger={ledger} busy={busy} onCommit={settingsCommit} />
+            <BackupPanel busy={busy} demo={demo} onBackupNow={exportBackup} /><DossierPanel ledger={ledger} today={today} /><ArchivePanel ledger={ledger} today={today} documents={storeInfo.documents} busy={busy} demo={demo}
+            onArchive={archiveYear} onReopen={reopenYear} /></>}
           busy={busy} onCommit={(actions, message) => { void commit(actions, message, { closeForm: false }); }} />}
         <footer className="workspace-footer"><span>{APP_NAME}</span><span>{period.length === 4 ? "Anno " + period : monthLabel(period)}</span></footer>
       </main>
@@ -855,7 +1044,10 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       {form.type === "style" && <StyleDialog {...commitProps} record={form.record} />}
       {form.type === "reset" && <ResetDialog busy={busy} error={formError} progress={progress} count={currentRecords.length}
         onCancel={close} onConfirm={(device) => { void resetEverything(device); }} />}
-      {form.type === "restore" && <RestoreDialog {...commitProps} records={currentRecords} progress={progress} onCancel={close} />}
+      {form.type === "restore" && <RestoreDialog {...commitProps} records={currentRecords} progress={progress} onCancel={close}
+        onCommit={(actions, message) => { void commit(actions, message, { allowArchived: true }); }} />}
+      {form.type === "simulate" && <LoanSimulator ledger={ledger} debt={form.debt} today={today}
+        onRegisterExtra={(amount) => registerExtraRepayment(form.debt, amount)} onApplyPlan={(installment, remaining) => applyLoanPlan(form.debt, installment, remaining)} />}
       {form.type === "quick" && <QuickEntry ledger={ledger} kind={form.kind} today={today} busy={busy} error={formError}
         onSave={(actions, message, again) => commit(actions, message, { closeForm: !again, jump: !again, undoable: true })}
         onMore={(value) => { setFormError(""); setForm({ type: "movement", id: newId(), preset: value }); }} />}

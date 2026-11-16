@@ -1,4 +1,5 @@
 import { useId, useMemo, type ReactNode } from "react";
+import { Calculator, LifeBuoy, Telescope } from "lucide-react";
 import {
   Archive, ArrowDownLeft, ArrowUpRight, CalendarClock, ChartNoAxesCombined, CircleHelp, HandCoins, Handshake, Landmark, PencilLine, Pencil, Plus, RefreshCw,
   Scale, Target, TrendingUp, Users, WalletCards,
@@ -13,7 +14,7 @@ import { debtStatus, type DebtStatus } from "../lib/debts";
 import { investmentHistory, investmentSummary } from "../lib/investments";
 import { AccountGlyph, Empty, HistoryChart, PanelTitle, axisMoney } from "./ledger-views";
 
-export type PatrimonioTab = "accounts" | "investments" | "debts" | "credits" | "goals";
+export type PatrimonioTab = "accounts" | "investments" | "debts" | "credits" | "goals" | "fund" | "projection";
 
 const CLASS_COLORS: Record<string, string> = {
   equity: "#1d9e75", bond: "#378add", pension: "#7f77dd", crypto: "#ef9f27", deposit: "#5e8f3c", other: "#888780",
@@ -30,6 +31,8 @@ type Handlers = {
   onCreditMove: (credit: Account, direction: "lend" | "back") => void;
   onAdjust: (gap: Gap) => void;
   onGoal: (goal?: Goal) => void;
+  /** Simulatore di estinzione anticipata (solo finanziamenti a rate). */
+  onSimulate?: (debt: Account) => void;
   today: string;
 };
 
@@ -54,15 +57,19 @@ function ReconcilePanel({ ledger, onAdjust }: { ledger: Ledger; onAdjust: (gap: 
   </section>;
 }
 
-export function Patrimonio({ ledger, year, month, monthChange, tab, onTab, ...handlers }: Handlers & {
+export function Patrimonio({ ledger, year, month, monthChange, tab, onTab, fund, projection, ...handlers }: Handlers & {
   ledger: Ledger; year: number; month: string; monthChange: (month: string) => void;
   tab: PatrimonioTab; onTab: (tab: PatrimonioTab) => void;
+  /** Schede facoltative (moduli): fondo di emergenza e proiezione. */
+  fund?: ReactNode; projection?: ReactNode;
 }) {
   const values = accountBalances(ledger, month);
   const sum = netWorth(values);
   const part = (types: string[]) => values.filter(({ account }) => types.includes(account.value.type))
     .reduce((total, { amount }) => total + (amount ?? 0), 0);
-  const tabs: [PatrimonioTab, string, typeof WalletCards][] = [["accounts", "Conti", WalletCards], ["investments", "Investimenti", TrendingUp], ["debts", "Debiti", HandCoins], ["credits", "Crediti", Handshake], ["goals", "Obiettivi", Target]];
+  const tabs: [PatrimonioTab, string, typeof WalletCards][] = [["accounts", "Conti", WalletCards], ...(fund ? [["fund", "Fondo", LifeBuoy]] as [PatrimonioTab, string, typeof WalletCards][] : []),
+    ["investments", "Investimenti", TrendingUp], ["debts", "Debiti", HandCoins], ["credits", "Crediti", Handshake], ["goals", "Obiettivi", Target],
+    ...(projection ? [["projection", "Proiezione", Telescope]] as [PatrimonioTab, string, typeof WalletCards][] : [])];
   const credits = part(["receivable"]);
   return <>
     <section className="net-hero">
@@ -85,6 +92,8 @@ export function Patrimonio({ ledger, year, month, monthChange, tab, onTab, ...ha
     {tab === "debts" && <DebtsTab {...{ ledger, year, month }} {...handlers} />}
     {tab === "credits" && <CreditsTab {...{ ledger, month }} {...handlers} />}
     {tab === "goals" && <GoalsTab ledger={ledger} today={handlers.today} onEdit={handlers.onGoal} />}
+    {tab === "fund" && fund}
+    {tab === "projection" && projection}
   </>;
 }
 
@@ -232,7 +241,7 @@ function InvestmentsTab({ ledger, year, month, onInvestment, onBalance, onContri
 
 // ------------------------------------------------------------------ Debiti
 
-function DebtCard({ ledger, debt, status, year, onDebt, onRepay, onBalance }: Pick<Handlers, "onDebt" | "onRepay" | "onBalance"> & { ledger: Ledger; debt: Account; status: DebtStatus; year: number }) {
+function DebtCard({ ledger, debt, status, year, onDebt, onRepay, onBalance, onSimulate }: Pick<Handlers, "onDebt" | "onRepay" | "onBalance" | "onSimulate"> & { ledger: Ledger; debt: Account; status: DebtStatus; year: number }) {
   const details = status.details;
   const loan = details?.kind === "loan" ? details : null;
   const flexible = details?.kind === "flexible" ? details : null;
@@ -272,12 +281,13 @@ function DebtCard({ ledger, debt, status, year, onDebt, onRepay, onBalance }: Pi
     <div className="debt-actions">
       <button type="button" className="button secondary small" onClick={() => onRepay(debt)}><HandCoins size={14} /> {flexible ? "Registra rimborso" : "Registra rata"}</button>
       <button type="button" className="button secondary small" onClick={() => onBalance(debt)}><PencilLine size={14} /> Correggi residuo</button>
+      {loan && onSimulate && (status.residual ?? 0) > 0 && <button type="button" className="button secondary small" onClick={() => onSimulate(debt)}><Calculator size={14} /> Simula estinzione</button>}
       {!details && <button type="button" className="text-button" onClick={() => onDebt(debt)}>Completa i dettagli</button>}
     </div>
   </article>;
 }
 
-function DebtsTab({ ledger, year, month, onDebt, onRepay, onBalance }: Handlers & { ledger: Ledger; year: number; month: string }) {
+function DebtsTab({ ledger, year, month, onDebt, onRepay, onBalance, onSimulate }: Handlers & { ledger: Ledger; year: number; month: string }) {
   const debts = ledger.accounts.filter((account) => account.value.type === "debt");
   const active = debts.filter((account) => !account.value.archived);
   const archived = debts.filter((account) => account.value.archived);
@@ -307,7 +317,7 @@ function DebtsTab({ ledger, year, month, onDebt, onRepay, onBalance }: Handlers 
       </div>
     </section>
     <div className="debt-list">
-      {active.map((debt, index) => <DebtCard key={debt.id} {...{ ledger, debt, year, onDebt, onRepay, onBalance }} status={statuses[index]} />)}
+      {active.map((debt, index) => <DebtCard key={debt.id} {...{ ledger, debt, year, onDebt, onRepay, onBalance, onSimulate }} status={statuses[index]} />)}
     </div>
     {archived.length > 0 && <section className="panel"><details className="archived-block flush">
       <summary><Archive size={15} /> Debiti estinti o archiviati ({archived.length})</summary>

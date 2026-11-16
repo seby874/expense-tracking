@@ -13,11 +13,13 @@ import { ACCENTS, StyleIcon, StylePicker, toneClass } from "./style";
 import { AccountGlyph } from "./ledger-views";
 import type { TrashItem } from "../lib/ledger-sync";
 import { planRestore, type RestorePlan } from "../lib/data-io";
+import { entryText, readZip } from "../lib/backup/zip";
+import { decryptBackup, isEncrypted } from "../lib/backup/crypto";
 import { readLook, saveLook, type Density, type LookPrefs, type StartScreen, type TextSize } from "../lib/preferences";
 import { FormError } from "./ledger-forms";
 import { cleanTag } from "./tags";
 
-function PanelHead({ icon, title, subtitle, action }: { icon: ReactNode; title: string; subtitle: string; action?: ReactNode }) {
+export function PanelHead({ icon, title, subtitle, action }: { icon: ReactNode; title: string; subtitle: string; action?: ReactNode }) {
   return <div className="panel-heading">
     <div><h2 className="heading-with-icon">{icon} {title}</h2><p>{subtitle}</p></div>
     {action}
@@ -350,7 +352,7 @@ export function ResetDialog({ count, busy, error, progress, onConfirm, onCancel 
 
 // ---------------------------------------------------------------- Ripristino del backup
 
-const MAX_FILE_BYTES = 15 * 1024 * 1024;
+const MAX_FILE_BYTES = 200 * 1024 * 1024;
 
 export function RestoreDialog({ records, busy, error, progress, onCommit, onCancel }: {
   records: LedgerRecord[]; busy: boolean; error: string; progress: string;
@@ -359,36 +361,67 @@ export function RestoreDialog({ records, busy, error, progress, onCommit, onCanc
   const [plan, setPlan] = useState<RestorePlan | null>(null);
   const [fileName, setFileName] = useState("");
   const [readError, setReadError] = useState("");
+  // Backup cifrato (.etbackup): serve la password con cui è stato creato.
+  const [locked, setLocked] = useState<Uint8Array | null>(null);
+  const [password, setPassword] = useState("");
+
+  function plan_(bytes: Uint8Array) {
+    // .zip (v2): i dati sono in dati/backup.json; .json (v1): il file stesso.
+    const text = bytes[0] === 0x50 && bytes[1] === 0x4b ? entryText(readZip(bytes), "dati/backup.json") : new TextDecoder().decode(bytes);
+    if (text === null) { setReadError("Nel file .zip manca dati/backup.json."); return; }
+    const next = planRestore(text, records);
+    if (next.error) setReadError(next.error); else setPlan(next);
+  }
 
   async function choose(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
     setPlan(null);
     setReadError("");
+    setLocked(null);
     if (!file) return;
-    if (file.size > MAX_FILE_BYTES) { setReadError("Il file è troppo grande (massimo 15 MB)."); return; }
+    if (file.size > MAX_FILE_BYTES) { setReadError("Il file è troppo grande (massimo 200 MB)."); return; }
     setFileName(file.name);
     try {
-      const next = planRestore(await file.text(), records);
-      if (next.error) setReadError(next.error); else setPlan(next);
-    } catch {
-      setReadError("Impossibile leggere il file.");
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (isEncrypted(bytes)) { setLocked(bytes); return; }
+      plan_(bytes);
+    } catch (error) {
+      setReadError(error instanceof Error ? error.message : "Impossibile leggere il file.");
+    }
+  }
+
+  async function unlock() {
+    if (!locked) return;
+    setReadError("");
+    try {
+      plan_(await decryptBackup(locked, password));
+      setLocked(null);
+      setPassword("");
+    } catch (error) {
+      setReadError(error instanceof Error ? error.message : "Impossibile aprire il backup.");
     }
   }
 
   const writes = plan?.mutations.length ?? 0;
   return <div className="editor import-dialog">
-    <p className="form-help">Scegli un backup completo (.json) scaricato da Impostazioni → I tuoi dati. Le voci del backup vengono aggiunte o riportate come nel file; nulla viene cancellato. Il file viene letto qui, nel browser.</p>
+    <p className="form-help">Scegli un backup (.zip, .etbackup cifrato o il vecchio .json). Le voci del backup vengono aggiunte o riportate come nel file; nulla viene cancellato. Il file viene letto qui, nel browser.</p>
     <label className="file-picker">
       <FileUp size={19} />
       <span>{fileName || "Scegli il file di backup…"}</span>
-      <input type="file" accept=".json,application/json" onChange={(event) => void choose(event)} disabled={busy} />
+      <input type="file" accept=".zip,.etbackup,.json,application/json,application/zip" onChange={(event) => void choose(event)} disabled={busy} />
     </label>
+    {locked && <div className="inline-form">
+      <input type="password" autoComplete="current-password" placeholder="Password del backup" value={password}
+        onChange={(event) => setPassword(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void unlock(); }} />
+      <button type="button" className="button primary small" disabled={!password} onClick={() => void unlock()}>Apri</button>
+    </div>}
     <FormError message={readError} />
     {plan && <div className="import-summary" role="status"><ul>
       <li>{plan.restored.toLocaleString("it-IT")} {plan.restored === 1 ? "voce da ripristinare" : "voci da ripristinare"}</li>
       {plan.unchanged > 0 && <li>{plan.unchanged.toLocaleString("it-IT")} già identiche (saltate)</li>}
       {plan.invalid > 0 && <li>{plan.invalid.toLocaleString("it-IT")} non valide (ignorate)</li>}
+      {plan.skippedYears.length > 0 && <li>Saltate le voci di {plan.skippedYears.join(", ")}: {plan.skippedYears.length === 1 ? "l’anno è archiviato" : "gli anni sono archiviati"}. Riaprili in Impostazioni → Archivio e ripeti il ripristino.</li>}
     </ul>{!writes && <p className="form-help">Non c’è nulla di nuovo da ripristinare.</p>}</div>}
     {progress && <p className="form-help" role="status">{progress}</p>}
     <FormError message={error} />

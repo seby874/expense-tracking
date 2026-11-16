@@ -1,0 +1,33 @@
+# Controlli automatici a ogni push e pull request: tipi, test e build.
+# Verifica anche che la cartella docs/ (pubblicata su GitHub Pages) sia aggiornata rispetto al codice.
+name: Controlli
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: docs/ aggiornata
+        run: |
+          if ! git diff --quiet -- docs; then
+            echo "::error::La cartella docs/ non corrisponde al codice: esegui npm run build e carica docs/."
+            git status --short docs
+            exit 1
+          fi

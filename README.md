@@ -2,6 +2,26 @@
 
 App personale in italiano per registrare entrate, spese, trasferimenti, saldi dei conti e patrimonio netto. Interfaccia React + Vite, dati su Cloud Firestore, accesso con Firebase Authentication (email e password).
 
+## Novità della 2.0
+
+Pensata per durare anni senza modifiche: regole e parametri di legge sono dati modificabili, i dati sono portabili.
+
+- **Funzioni attivabili** (Impostazioni → Funzioni): accendi solo ciò che ti serve; la Dichiarazione parte spenta.
+- **Parametri di legge e bancari** per anno (ritenuta 26%, bollo, garanzia dei depositi, penali di estinzione, detrazioni, reddito, inflazione): «Nuovo anno» copia l'anno prima; a gennaio il controllo di salute chiede di confermarli.
+- **Archivio annuale**: gli anni chiusi diventano pochi documenti (meno letture Firestore), visibili ma in sola lettura; si riaprono con un clic.
+- **Backup automatico portatile**: un .zip con dati (JSON), fogli CSV per Excel/Google Sheets, database SQL, schema e LEGGIMI con la guida per migrare. Giornaliero su PC (cartella scelta, anche dentro Google Drive per desktop; si tengono 7 giorni + 4 settimane + 12 mesi), settimanale sul telefono. Cifratura facoltativa con password (.etbackup, AES-256).
+- **Familiari** con codice fiscale verificato (nascosto in modalità discreta e assente dai CSV) e anni a carico; ogni spesa può essere «sostenuta per» un familiare.
+- **Dichiarazione dei redditi** (stima): franchigie, tetti, pagamenti tracciabili, rimborsi esclusi, familiari a carico, redditi alti; esportazione per il CAF.
+- **Rimborsi attesi** (fondo sanitario, assicurazione, nota spese) con «Ricevuto» che registra l'entrata.
+- **Fondo di emergenza** (Patrimonio → Fondo): mesi coperti con liquidità pesata per disponibilità (subito 100%, 1-3 giorni 95%, entro un mese 70%, vincoli 0%, investimenti facoltativi 50%: modificabili) e «coperti subito»; conti deposito con tassi a fasi, linee vincolate, accredito, bollo a carico tuo o della banca, svincolo anticipato, avviso oltre la garanzia di 100.000 € per banca.
+- **Spese fisse e abbonamenti** (Analisi → Spese fisse): costo mensile/annuo, quota condivisa, sospensioni, storico dei prezzi e aumenti, prove gratuite e disdette, bollette **per competenza** (selettore cassa/competenza), possibili ricorrenti non ancora impostati.
+- **Simulatore di estinzione anticipata** (Debiti → Simula): riduci durata o rata, rata o durata scelta, rinegoziazione, versamenti mensili, estinzione totale, surroga, tasso variabile; penali, detrazione persa, effetto sul fondo, confronto con l'investimento; «Applica» aggiorna il piano.
+- **Anno su anno**, **Proiezione** del patrimonio (fasce, valori a prezzi di oggi, domanda inversa, traguardi), **Calendario**, **Scadenze** (veicoli, documenti, garanzie, contratti), **Report annuale** proposto a gennaio, **Dossier per i familiari**.
+- **Controllo di salute** alla prima apertura del mese: backup, letture, voci non valide, saldi, scarti, ricorrenti arretrati, doppioni, debiti, fondo, abbonamenti, parametri, familiari, scadenze, rimborsi, cestino.
+- **Dati di esempio** di 10 anni, relativi all'anno corrente, per provare tutto.
+
+Non ci sono più l'uso offline e lo sblocco con impronta: tolti per sicurezza (la copia locale non cifrata e lo sblocco aggirabile).
+
 ## Funzioni
 
 - Panoramica, movimenti, patrimonio, analisi, esportazione CSV, dati di esempio.
@@ -73,7 +93,31 @@ src/
   lib/config.ts         nome dell'app e opzioni (reset password, minuti di inattività)
   lib/firebase.ts       configurazione Firebase
   lib/local-ledger.ts   lettura e scrittura su Firestore (solo le modifiche, vedi sotto)
-  lib/ledger-sync.ts    copia in memoria dell'archivio e cursore delle modifiche
+  lib/ledger-sync.ts    copia in memoria dell'archivio, cursore delle modifiche, controllo dei conflitti (planWrite)
+  lib/params.ts         parametri di legge e bancari per anno, funzioni attivabili, pesi del fondo
+  lib/archive.ts        archivio annuale (anni chiusi in pochi documenti, sola lettura)
+  lib/backup/           backup portatile: zip, cifratura, contenuto (CSV, SQL, LEGGIMI), cartella e rotazione, frequenza
+  lib/people.ts         familiari e codice fiscale
+  lib/tax.ts            stima delle detrazioni (Dichiarazione)
+  lib/refunds.ts        rimborsi attesi
+  lib/deposit.ts        interessi dei conti deposito (tassi a fasi, vincoli, ritenuta, bollo)
+  lib/fund.ts           fondo di emergenza (mesi coperti, liquidità pesata, garanzia per banca)
+  lib/fixed.ts          spese fisse, abbonamenti, bollette per competenza
+  lib/loan-sim.ts       simulatore di estinzione anticipata
+  lib/yoy.ts            confronto anno su anno
+  lib/projection.ts     proiezione del patrimonio
+  lib/calendar.ts       calendario finanziario
+  lib/deadlines.ts      scadenzario
+  lib/report.ts         report annuale
+  lib/health.ts         controllo di salute mensile
+  lib/__tests__/        test (Vitest)
+  app/settings-v2.tsx   funzioni, familiari, parametri, detrazioni, backup, archivio
+  app/analysis.tsx      schede di Analisi, Dichiarazione, rimborsi
+  app/fund.tsx          fondo di emergenza e conti deposito
+  app/fixed.tsx         spese fisse e abbonamenti
+  app/loan-sim.tsx      simulatore di estinzione
+  app/planning-v2.tsx   anno su anno, proiezione, calendario, scadenze, report, dossier, controllo di salute
+.github/workflows/ci.yml  controlli automatici (tipi, test, build, docs/ aggiornata)
 firestore.rules         regole di sicurezza da pubblicare nella console Firebase
 docs/                   build pronta per GitHub Pages
 ```
@@ -99,6 +143,7 @@ GitHub Pages: **Settings → Pages → Deploy from a branch → main → /docs**
 Prima di usare l’app online, nella console Firebase:
 
 1. Pubblica `firestore.rules` (Firestore Database → Regole). Quando aggiorni l'app, pubblica prima le regole e subito dopo la cartella `docs/`.
+   La 2.0 aggiunge i tipi `person`, `deadline`, `param`, `archive` e la cancellazione delle lapidi vuote: senza le regole nuove questi salvataggi vengono rifiutati.
 2. Aggiungi `TUO-UTENTE.github.io` ai domini autorizzati (Authentication → Impostazioni).
 3. Disattiva la registrazione di nuovi utenti e lascia attiva la protezione dall’enumerazione delle email.
 4. Limita la chiave API ai referrer del sito (Google Cloud Console → Credenziali).

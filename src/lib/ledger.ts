@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-export const INITIAL_YEAR = 2027;
+// Niente codice generato al volo: la Content Security Policy della pagina vieta eval (Zod usa la convalida normale).
+z.config({ jitless: true });
+
 export const MONTHS = ["Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno", "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre"];
 export const METHOD_LABELS = ["Carta", "Contanti", "Bonifico", "Addebito diretto", "PayPal", "Altro"];
 export const ACCOUNT_TYPES = { cash: "Liquidità", asset: "Altre attività", investment: "Investimento", debt: "Debito", receivable: "Credito" } as const;
@@ -44,6 +46,27 @@ export const partSchema = z.object({
   creditId: id.optional(),
 }).refine((part) => !!part.labelId !== !!part.creditId, { message: "Ogni parte va a una categoria oppure a un credito." });
 
+/**
+ * Dati facoltativi di un movimento (versione 2.0): per chi è la spesa, detrazione, rimborso atteso,
+ * periodo di competenza (bollette). Tutti in un unico campo per restare entro i limiti delle regole Firestore.
+ */
+export const movementExtraSchema = z.object({
+  // Familiare per cui è stata sostenuta la spesa (assente = te stesso).
+  person: id.optional(),
+  // Detrazione forzata a mano: "yes" = detraibile, "no" = esclusa (assente = in base alla categoria).
+  deduct: z.enum(["yes", "no"]).optional(),
+  // Rimborso atteso (fondo sanitario, assicurazione, nota spese).
+  refund: z.object({
+    amount: cents.positive(),
+    from: z.string().trim().max(80),
+    received: z.union([dateSchema, z.literal("")]),
+  }).optional(),
+  // Periodo coperto (bollette): la spesa si distribuisce sui mesi del periodo.
+  competence: z.object({ from: dateSchema, to: dateSchema }).optional(),
+  // Conguaglio di una bolletta.
+  adjustment: z.boolean().optional(),
+});
+
 const movementFields = {
   date: dateSchema,
   title: z.string().trim().min(1).max(160),
@@ -52,6 +75,7 @@ const movementFields = {
   accountId: id.nullable(),
   tags: z.array(tagName).max(MAX_TAGS).optional(),
   origin: originSchema.optional(),
+  extra: movementExtraSchema.optional(),
 };
 
 const movementValue = z.discriminatedUnion("type", [
@@ -87,6 +111,12 @@ export const debtDetailsSchema = z.discriminatedUnion("kind", [
     paidBefore: z.number().int().min(0).max(600),
     accountId: id.nullable(),
     interestLabelId: id,
+    // Mutuo per l'abitazione principale: niente penali di estinzione, interessi detraibili (se il modulo è attivo).
+    home: z.boolean().optional(),
+    // Credito ai consumatori (prestito personale, auto…): penale di estinzione dai parametri di legge.
+    consumer: z.boolean().optional(),
+    // Tasso variabile: il simulatore propone scenari di tasso.
+    variable: z.boolean().optional(),
   }),
   z.object({
     kind: z.literal("flexible"),
@@ -109,6 +139,47 @@ export const bankLinkSchema = z.object({
   // Ultime quattro cifre delle carte del conto: riconoscono le ricariche fatte da questa carta.
   cards: z.array(z.string().regex(/^\d{4}$/)).max(10),
   holder: z.string().max(100).optional(),
+});
+
+/** Tasso a fasi: "X% fino a…", poi "Y%". `until` vuoto = per sempre. */
+const rateStepSchema = z.object({ rate: z.number().min(-10).max(100), until: z.union([dateSchema, z.literal("")]) });
+
+export const CREDIT_FREQUENCIES = ["daily", "monthly", "quarterly", "semiannual", "annual", "maturity", "upfront"] as const;
+
+/** Linea vincolata di un conto deposito. */
+export const depositLineSchema = z.object({
+  id,
+  amount: cents.positive(),
+  start: dateSchema,
+  end: dateSchema,
+  rates: z.array(rateStepSchema).min(1).max(6),
+  credit: z.enum(CREDIT_FREQUENCIES),
+  // Svincolo anticipato: non ammesso, perdita degli interessi, tasso ridotto.
+  early: z.enum(["none", "lose-interest", "reduced-rate"]),
+  earlyRate: z.number().min(0).max(100).optional(),
+  noticeDays: z.number().int().min(0).max(400).optional(),
+  closed: z.boolean().optional(),
+});
+
+/** Conto deposito / conto corrente remunerato. Le parti avanzate sono facoltative. */
+export const depositDetailsSchema = z.object({
+  kind: z.enum(["current", "free", "locked"]),
+  bank: z.string().trim().max(80).optional(),
+  rates: z.array(rateStepSchema).max(6),
+  credit: z.enum(CREDIT_FREQUENCIES),
+  dayCount: z.enum(["365", "360", "actual"]).optional(),
+  stamp: z.enum(["client", "bank"]).optional(),
+  stampCharge: z.enum(["quarterly", "annual", "daily"]).optional(),
+  lines: z.array(depositLineSchema).max(20).optional(),
+});
+
+/** Quanto rapidamente i soldi del conto sono disponibili (fondo di emergenza). */
+export const AVAILABILITY = ["now", "days", "month", "long"] as const;
+export const liquiditySchema = z.object({
+  availability: z.enum(AVAILABILITY),
+  // Peso personalizzato (0-100); assente = quello predefinito per la disponibilità.
+  weight: z.number().min(0).max(100).optional(),
+  emergency: z.boolean().optional(),
 });
 
 export const creditDetailsSchema = z.object({
@@ -144,6 +215,22 @@ export const importValueSchema = z.object({
   accounts: z.array(id).max(20),
   // Righe del file lette ma non diventate movimenti (rimborsi assorbiti, doppioni, ignorate): non si ripropongono.
   seen: z.array(z.string().max(80)).max(5000).optional(),
+});
+
+/** Spesa fissa o abbonamento: ciclo di vita, prezzi, disdetta. */
+export const fixedSchema = z.object({
+  kind: z.enum(["subscription", "fixed", "bill"]),
+  status: z.enum(["active", "trial", "cancelling", "suspended", "cancelled"]),
+  trialEnd: z.union([dateSchema, z.literal("")]).optional(),
+  cancelBy: z.union([dateSchema, z.literal("")]).optional(),
+  noticeDays: z.number().int().min(0).max(400).optional(),
+  // Mesi senza addebito (1-12), es. palestra d'estate.
+  suspendedMonths: z.array(z.number().int().min(1).max(12)).max(12).optional(),
+  // Storico dei prezzi (importo dalla data).
+  prices: z.array(z.object({ from: dateSchema, amount: cents.positive() })).max(60).optional(),
+  // Quota tua in percentuale (abbonamenti condivisi).
+  share: z.number().min(1).max(100).optional(),
+  since: z.union([dateSchema, z.literal("")]).optional(),
 });
 
 export const scheduleSchema = z.object({
@@ -202,9 +289,85 @@ export const goalValueSchema = z.object({
 });
 
 /** Impostazioni comuni a tutti i dispositivi (un solo documento, id "general"). */
+export const MODULES = ["tax", "fund", "fixed", "calendar", "deadlines", "projection", "yoy", "health", "refunds", "people"] as const;
+export type ModuleKey = (typeof MODULES)[number];
+
 export const settingsValueSchema = z.object({
   // Giorno in cui inizia il "mese" per entrate, spese e budget (1 = mese di calendario).
   periodStart: z.number().int().min(1).max(28),
+  // Moduli attivi (assente = predefinito, vedi DEFAULT_MODULES).
+  modules: z.partialRecord(z.enum(MODULES), z.boolean()).optional(),
+  // Fondo di emergenza: pesi per disponibilità, obiettivo in mesi, inclusione degli investimenti.
+  fund: z.object({
+    weights: z.object({ now: z.number().min(0).max(100), days: z.number().min(0).max(100), month: z.number().min(0).max(100), long: z.number().min(0).max(100), investment: z.number().min(0).max(100) }),
+    targetMonths: z.number().min(1).max(36),
+    includeInvestments: z.boolean(),
+  }).optional(),
+  // Voci di detrazione attive (modulo Dichiarazione).
+  deductions: z.array(z.string().regex(/^[a-z-]{2,30}$/)).max(30).optional(),
+  // Ipotesi della proiezione a lungo termine (percentuali).
+  projection: z.object({ returns: z.number().min(-20).max(30), inflation: z.number().min(-5).max(30), incomeGrowth: z.number().min(-20).max(30) }).optional(),
+});
+
+/** Familiare (per spese sostenute per altri e familiari a carico). */
+export const personValueSchema = z.object({
+  firstName: z.string().trim().min(1).max(60),
+  lastName: z.string().trim().min(1).max(60),
+  taxCode: z.string().trim().toUpperCase().regex(/^([A-Z0-9]{16})?$/),
+  relation: z.enum(["spouse", "child", "other"]),
+  birthDate: z.union([dateSchema, z.literal("")]),
+  // Anni in cui è a carico, con la percentuale (100 o 50).
+  dependent: z.array(z.object({ year: z.number().int().min(1900).max(2100), share: z.number().int().min(0).max(100) })).max(120),
+  notes: z.string().trim().max(300).optional(),
+  order: z.number().int().min(0).max(10_000),
+});
+
+export const DEADLINE_TYPES = ["vehicle", "document", "warranty", "contract", "health", "other"] as const;
+
+/** Scadenza non economica (revisione, documenti, garanzie…). */
+export const deadlineValueSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  type: z.enum(DEADLINE_TYPES),
+  date: dateSchema,
+  // Ripetizione in mesi (0 = una volta).
+  repeatMonths: z.number().int().min(0).max(240),
+  noticeDays: z.number().int().min(0).max(400),
+  person: id.optional(),
+  movement: id.optional(),
+  notes: z.string().trim().max(600),
+  done: z.boolean().optional(),
+});
+
+/** Parametri di legge e bancari di un anno (detrazioni, ritenuta, bollo, penali…). */
+export const deductionRuleSchema = z.object({
+  rate: z.number().min(0).max(100),
+  threshold: cents.min(0),           // franchigia
+  cap: cents.min(0).nullable(),      // tetto della spesa (null = nessuno)
+  traceable: z.boolean(),            // richiede pagamento tracciabile
+});
+export const paramsValueSchema = z.object({
+  year: z.number().int().min(1900).max(2100),
+  withholding: z.number().min(0).max(100),          // ritenuta sugli interessi (26%)
+  depositStamp: z.number().min(0).max(5),           // bollo conti deposito (% annuo)
+  currentStamp: cents.min(0),                       // bollo fisso conti correnti
+  currentStampThreshold: cents.min(0),              // giacenza media oltre cui si paga
+  depositGuarantee: cents.min(0),                   // garanzia per banca (FITD)
+  consumerPenalty: z.number().min(0).max(10),       // indennizzo estinzione credito al consumo
+  consumerPenaltyShort: z.number().min(0).max(10),  // con meno di un anno residuo
+  consumerPenaltyMin: cents.min(0),                 // sotto questo importo rimborsato: niente indennizzo
+  pensionDeductionCap: cents.min(0),                // deduzione previdenza complementare
+  deductions: z.record(z.string().regex(/^[a-z-]{2,30}$/), deductionRuleSchema),
+  income: cents.min(0).nullable(),                  // reddito complessivo dichiarato (facoltativo)
+  inflation: z.number().min(-20).max(100).nullable().optional(), // inflazione ISTAT dell'anno (%), per i valori reali
+  confirmed: z.boolean().optional(),
+});
+
+/** Anno archiviato: movimenti e saldi in un unico documento (o più parti), per leggere poco da Firestore. */
+export const archiveValueSchema = z.object({
+  year: z.number().int().min(1900).max(2100),
+  part: z.number().int().min(0).max(50),
+  parts: z.number().int().min(1).max(51),
+  records: z.array(z.unknown()).max(20_000),
 });
 
 export const recordSchema = z.discriminatedUnion("kind", [
@@ -219,15 +382,25 @@ export const recordSchema = z.discriminatedUnion("kind", [
       name, type: z.enum(["cash", "asset", "investment", "debt", "receivable"]), ...flags,
       debt: debtDetailsSchema.optional(), invest: investDetailsSchema.optional(),
       credit: creditDetailsSchema.optional(), bank: bankLinkSchema.optional(),
+      deposit: depositDetailsSchema.optional(), liquidity: liquiditySchema.optional(),
+      // Quota di proprietà per i conti cointestati (100 = tutto tuo).
+      share: z.number().min(1).max(100).optional(),
     }),
   }),
   z.object({
     kind: z.literal("label"), id, version,
-    value: z.object({ name, type: z.enum(["expense", "income"]), ...flags, subcategories: z.array(subcategoryName).max(MAX_SUBCATEGORIES).optional() }),
+    value: z.object({
+      name, type: z.enum(["expense", "income"]), ...flags, subcategories: z.array(subcategoryName).max(MAX_SUBCATEGORIES).optional(),
+      // Spesa essenziale (fondo di emergenza).
+      essential: z.boolean().optional(),
+      // Tipo di detrazione della categoria e, facoltativo, delle singole sottocategorie.
+      deduction: z.string().regex(/^[a-z-]{2,30}$/).optional(),
+      subDeductions: z.record(subcategoryName, z.string().regex(/^[a-z-]{0,30}$/)).optional(),
+    }),
   }),
   z.object({
     kind: z.literal("recurring"), id, version,
-    value: z.object({ template: movementValue, schedule: scheduleSchema, paused: z.boolean().optional() }),
+    value: z.object({ template: movementValue, schedule: scheduleSchema, paused: z.boolean().optional(), fixed: fixedSchema.optional() }),
   }),
   z.object({ kind: z.literal("rule"), id, version, value: ruleValueSchema }),
   z.object({ kind: z.literal("import"), id, version, value: importValueSchema }),
@@ -235,10 +408,17 @@ export const recordSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("budget"), id, version, value: budgetValueSchema }),
   z.object({ kind: z.literal("goal"), id, version, value: goalValueSchema }),
   z.object({ kind: z.literal("setting"), id: z.literal("general"), version, value: settingsValueSchema }),
+  z.object({ kind: z.literal("person"), id, version, value: personValueSchema }),
+  z.object({ kind: z.literal("deadline"), id, version, value: deadlineValueSchema }),
+  z.object({ kind: z.literal("param"), id: z.string().regex(/^\d{4}$/), version, value: paramsValueSchema }),
+  z.object({ kind: z.literal("archive"), id: z.string().regex(/^\d{4}-\d{1,2}$/), version, value: archiveValueSchema }),
 ]);
 
 // "rule" e "import" restano solo per leggere i dati salvati dalle versioni con l'importazione degli estratti conto.
-export const RECORD_KINDS = ["movement", "balance", "account", "label", "recurring", "rule", "import", "template", "budget", "goal", "setting"] as const;
+export const RECORD_KINDS = [
+  "movement", "balance", "account", "label", "recurring", "rule", "import", "template", "budget", "goal", "setting",
+  "person", "deadline", "param", "archive",
+] as const;
 
 export const mutationSchema = z.discriminatedUnion("op", [
   z.object({ op: z.literal("save"), record: recordSchema }),
@@ -264,6 +444,14 @@ export type Template = Extract<LedgerRecord, { kind: "template" }>;
 export type Budget = Extract<LedgerRecord, { kind: "budget" }>;
 export type Goal = Extract<LedgerRecord, { kind: "goal" }>;
 export type Settings = Extract<LedgerRecord, { kind: "setting" }>;
+export type Person = Extract<LedgerRecord, { kind: "person" }>;
+export type Deadline = Extract<LedgerRecord, { kind: "deadline" }>;
+export type Params = Extract<LedgerRecord, { kind: "param" }>;
+export type Archive = Extract<LedgerRecord, { kind: "archive" }>;
+export type MovementExtra = z.infer<typeof movementExtraSchema>;
+export type DepositDetails = z.infer<typeof depositDetailsSchema>;
+export type DepositLine = z.infer<typeof depositLineSchema>;
+export type Fixed = z.infer<typeof fixedSchema>;
 export const DEFAULT_SETTINGS: Settings["value"] = { periodStart: 1 };
 export type Part = z.infer<typeof partSchema>;
 export type Schedule = Recurring["value"]["schedule"];
@@ -330,10 +518,14 @@ export function deriveLedger(records: LedgerRecord[]) {
   const templates: Template[] = [];
   const budgets: Budget[] = [];
   const goals: Goal[] = [];
+  const people: Person[] = [];
+  const deadlines: Deadline[] = [];
+  const params: Params[] = [];
   let settings: Settings | null = null;
   const removed: (Account | Label)[] = [];
+  const { live, archivedYears, archives, invalidArchived, fromArchive } = expandArchives(records);
 
-  for (const record of records) {
+  for (const record of live) {
     switch (record.kind) {
       case "account":
         if (record.value.removed) { accounts.delete(record.id); removed.push(record); } else accounts.set(record.id, record);
@@ -350,6 +542,10 @@ export function deriveLedger(records: LedgerRecord[]) {
       case "budget": budgets.push(record); break;
       case "goal": goals.push(record); break;
       case "setting": settings = record; break;
+      case "person": people.push(record); break;
+      case "deadline": deadlines.push(record); break;
+      case "param": params.push(record); break;
+      case "archive": break;
     }
   }
 
@@ -360,13 +556,58 @@ export function deriveLedger(records: LedgerRecord[]) {
   templates.sort((a, b) => a.value.order - b.value.order || a.value.name.localeCompare(b.value.name, "it"));
   budgets.sort((a, b) => a.value.order - b.value.order);
   goals.sort((a, b) => Number(!!a.value.done) - Number(!!b.value.done) || a.value.order - b.value.order);
+  people.sort((a, b) => a.value.order - b.value.order || a.value.firstName.localeCompare(b.value.firstName, "it"));
+  deadlines.sort((a, b) => a.value.date.localeCompare(b.value.date));
+  params.sort((a, b) => a.value.year - b.value.year);
   // Ordine scelto dall'utente; senza, quello predefinito (prima le voci di base, poi le altre).
   const ordered = <T extends Account | Label>(items: T[]) => items.map((item, index) => ({ item, key: item.value.order ?? 1000 + index }))
     .sort((a, b) => a.key - b.key).map(({ item }) => item);
   return {
     accounts: ordered([...accounts.values()]), labels: ordered([...labels.values()]), movements, balances, recurring, rules, imports, templates,
     budgets, goals, settings: (settings as Settings | null)?.value ?? DEFAULT_SETTINGS, settingsRecord: settings as Settings | null, removed,
+    people, deadlines, params, archives, archivedYears, invalidArchived, fromArchive,
   };
+}
+
+/**
+ * Gli anni archiviati arrivano come documenti "archive" con dentro movimenti e saldi:
+ * qui tornano voci normali (in sola lettura). Una voce viva con lo stesso ID prevale.
+ */
+function expandArchives(records: LedgerRecord[]) {
+  const archives = records.filter((record): record is Archive => record.kind === "archive");
+  if (!archives.length) return { live: records, archivedYears: new Set<number>(), archives, invalidArchived: 0, fromArchive: new Set<string>() };
+  const seen = new Set(records.map((record) => `${record.kind}:${record.id}`));
+  const live = [...records];
+  const archivedYears = new Set<number>();
+  // Voci che esistono solo dentro un archivio (le altre sono anche documenti vivi, es. archiviazione interrotta).
+  const fromArchive = new Set<string>();
+  let invalidArchived = 0;
+  for (const archive of archives) {
+    archivedYears.add(archive.value.year);
+    for (const item of archive.value.records) {
+      const parsed = recordSchema.safeParse(item);
+      if (!parsed.success || (parsed.data.kind !== "movement" && parsed.data.kind !== "balance")) { invalidArchived++; continue; }
+      const key = `${parsed.data.kind}:${parsed.data.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      fromArchive.add(key);
+      live.push(parsed.data);
+    }
+  }
+  return { live, archivedYears, archives, invalidArchived, fromArchive };
+}
+
+/** Anno di una voce archiviabile (movimento o saldo). */
+export function recordYear(record: LedgerRecord): number | null {
+  if (record.kind === "movement") return Number(record.value.date.slice(0, 4));
+  if (record.kind === "balance") return Number(record.value.month.slice(0, 4));
+  return null;
+}
+
+/** true se la voce appartiene a un anno archiviato (sola lettura). */
+export function isArchived(ledger: Pick<Ledger, "archivedYears">, record: LedgerRecord) {
+  const year = recordYear(record);
+  return year !== null && ledger.archivedYears.has(year);
 }
 
 export function activeAccounts(ledger: Ledger, keep?: string | null) {

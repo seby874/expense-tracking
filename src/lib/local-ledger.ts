@@ -56,7 +56,7 @@ function tombstone(target: { kind: string; id: string }, value: Record<string, u
   return { kind: target.kind, id: target.id, version: newId(), value, deleted: true, updatedAt: serverTimestamp() };
 }
 
-export type LedgerSnapshot = { records: LedgerRecord[]; trash: TrashItem[] };
+export type LedgerSnapshot = { records: LedgerRecord[]; trash: TrashItem[]; documents: number; invalid: string[] };
 
 function stamped<T extends object>(record: T) {
   return { ...record, updatedAt: serverTimestamp() };
@@ -132,7 +132,7 @@ export async function readLedger(): Promise<LedgerSnapshot> {
   } else if (await fullSync(ref, data)) {
     current.fullSyncAt = Date.now();
   }
-  return { records: data.records(), trash: data.trashed() };
+  return { records: data.records(), trash: data.trashed(), documents: data.documents, invalid: [...data.invalid] };
 }
 
 // ---- Scrittura ----

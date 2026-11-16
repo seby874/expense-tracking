@@ -19,8 +19,8 @@ export function csvNumber(cents: number) {
   return (cents / 100).toFixed(2).replace(".", ",");
 }
 
-export function downloadFile(filename: string, content: string, type: string) {
-  const url = URL.createObjectURL(new Blob([content], { type }));
+export function downloadFile(filename: string, content: string | Uint8Array, type: string) {
+  const url = URL.createObjectURL(new Blob([content as BlobPart], { type }));
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
@@ -79,6 +79,8 @@ export function backupDocument(records: LedgerRecord[]) {
 export type RestorePlan = {
   mutations: Mutation[];
   restored: number;
+  /** Voci di anni archiviati: si saltano (vanno riaperti prima). */
+  skippedYears: number[];
   unchanged: number;
   invalid: number;
   error: string;
@@ -96,7 +98,9 @@ function stableJson(value: unknown): string {
 
 /** Legge un backup .json e prepara le scritture senza eseguirle: nulla viene cancellato. */
 export function planRestore(text: string, records: LedgerRecord[]): RestorePlan {
-  const plan: RestorePlan = { mutations: [], restored: 0, unchanged: 0, invalid: 0, error: "" };
+  const plan: RestorePlan = { mutations: [], restored: 0, skippedYears: [], unchanged: 0, invalid: 0, error: "" };
+  const archived = new Set(records.flatMap((record) => (record.kind === "archive" ? [record.value.year] : [])));
+  const skipped = new Set<number>();
   let data: unknown;
   try { data = JSON.parse(text); } catch { plan.error = "Il file non è un JSON leggibile."; return plan; }
   const list = typeof data === "object" && data !== null && (data as { format?: unknown }).format === BACKUP_FORMAT
@@ -107,11 +111,14 @@ export function planRestore(text: string, records: LedgerRecord[]): RestorePlan 
     const parsed = recordSchema.safeParse(item);
     if (!parsed.success) { plan.invalid++; continue; }
     const record = parsed.data;
+    const year = record.kind === "movement" ? Number(record.value.date.slice(0, 4)) : record.kind === "balance" ? Number(record.value.month.slice(0, 4)) : null;
+    if (year !== null && archived.has(year)) { skipped.add(year); continue; }
     const existing = current.get(`${record.kind}:${record.id}`);
     if (existing && stableJson(existing.value) === stableJson(record.value)) { plan.unchanged++; continue; }
     plan.restored++;
     plan.mutations.push({ op: "save", record: { ...record, version: existing?.version ?? null } });
   }
+  plan.skippedYears = [...skipped].sort();
   return plan;
 }
 

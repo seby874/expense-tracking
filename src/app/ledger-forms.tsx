@@ -6,6 +6,7 @@ import {
 } from "../lib/ledger";
 import { debtDetails, linkedRecurring, splitRepayment } from "../lib/debts";
 import { TagInput } from "./tags";
+import { ExtraFields, buildExtra, extraDraft } from "./movement-extra";
 import { AmountPreview, TitleField } from "./inputs";
 
 type PartDraft = { key: number; target: string; subcategory: string; amount: string };
@@ -113,6 +114,7 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
   const [repeat, setRepeat] = useState(mode === "recurring");
   const [validation, setValidation] = useState("");
   const [tags, setTags] = useState<string[]>(value?.tags ?? []);
+  const [extra, setExtra] = useState(() => extraDraft(value?.type === "expense" ? value.extra : undefined));
   // Spesa divisa: ogni parte va a una categoria («label:id») o a un credito («credit:id»).
   const [parts, setParts] = useState<PartDraft[] | null>(() => (value?.type === "expense" && value.parts
     ? value.parts.map((part) => ({ key: partKey++, target: part.creditId ? `credit:${part.creditId}` : `label:${part.labelId}`, subcategory: part.subcategory ?? "", amount: amountInput(part.amount) }))
@@ -172,7 +174,11 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
       setValidation("Dai un nome al preferito.");
       return;
     }
+    // Altre opzioni (solo spese, non nei preferiti): per chi, detrazione, rimborso, competenza.
+    const built = type === "expense" && !template ? buildExtra(extra, amount) : {};
+    if (built.error) { setValidation(built.error); return; }
     const common = {
+      ...(built.extra ? { extra: built.extra } : {}),
       date: field(data, "date"),
       title: field(data, "title"),
       notes: field(data, "notes"),
@@ -400,6 +406,8 @@ export function MovementForm({ busy, error, ledger, prefill, date, mode, schedul
       {!template && <label>Note <span className="optional">facoltative</span>
         <textarea name="notes" rows={2} maxLength={1200} placeholder="Aggiungi un dettaglio" defaultValue={value?.notes ?? ""} />
       </label>}
+      {type === "expense" && !template && <ExtraFields ledger={ledger} draft={extra} onChange={setExtra}
+        labelId={parts ? parts.find((part) => part.target.startsWith("label:"))?.target.slice(6) ?? "" : labelId} subcategory={subcategory === NEW_SUBCATEGORY ? "" : subcategory} />}
       <div className="field-block"><span className="field-label">Tag <span className="optional">facoltativi</span></span>
         <TagInput value={tags} onChange={setTags} suggestions={allTags(ledger).map((item) => item.name)} /></div>
       {mode === "movement" && (!value || fresh) && !(type === "repayment" && debt && linkedRecurring(ledger, debt.id)) && <label className="check-row">
