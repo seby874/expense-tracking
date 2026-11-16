@@ -12,6 +12,8 @@ import {
   ActionScreen, ForgotPasswordScreen, LoginScreen, Splash, type ActionMode, type AuthNotice,
 } from "./app/auth-screens";
 import { IdleWarning, expiredMessage, useIdleLogout } from "./app/session-guard";
+// Font Inter incluso nell'app (nessun servizio esterno: la sicurezza della pagina vieta i font esterni).
+import "@fontsource-variable/inter";
 import "./app/globals.css";
 
 const ACTION_MODES: ActionMode[] = ["resetPassword", "verifyEmail", "recoverEmail"];

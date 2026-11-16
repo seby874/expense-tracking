@@ -73,14 +73,14 @@ export function Patrimonio({ ledger, year, month, monthChange, tab, onTab, fund,
   const credits = part(["receivable"]);
   return <>
     <section className="net-hero">
-      <div><span className="net-kicker"><Landmark size={17} /> PATRIMONIO NETTO</span><strong>{money(sum)}</strong>
+      <div><span className="net-kicker"><Landmark size={17} /> PATRIMONIO NETTO</span>{sum === null ? <strong className="net-empty">Nessun saldo registrato</strong> : <strong>{money(sum)}</strong>}
         <p className="net-split">
           <span>Liquidità e beni {money(part(["cash", "asset"]))}</span>
           <span>Investimenti {money(part(["investment"]))}</span>
           {(credits !== 0 || ledger.accounts.some((account) => account.value.type === "receivable")) && <span>Crediti {money(credits)}</span>}
           <span>Debiti {part(["debt"]) ? "−" : ""}{money(part(["debt"]))}</span>
         </p>
-        <p>{monthLabel(month)} · {values.filter(({ amount }) => amount !== null).length} di {values.length} valori disponibili</p></div>
+        <p>{monthLabel(month)} · {sum === null ? "registra il saldo di almeno un conto (Conti → Saldo) per calcolare il patrimonio" : `${values.filter(({ amount }) => amount !== null).length} di ${values.length} valori disponibili`}</p></div>
       <span className="net-decoration" aria-hidden="true"><ChartNoAxesCombined size={126} strokeWidth={1} /></span>
     </section>
     <div className="segmented patrimonio-tabs" role="tablist" aria-label="Sezioni del patrimonio">
