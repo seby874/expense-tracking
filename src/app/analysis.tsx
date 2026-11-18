@@ -95,7 +95,7 @@ export function TaxView({ ledger, year }: { ledger: Ledger; year: number }) {
       </div>
       <ul className="tax-lines">{summary.lines.map((line) => <TaxLineCard key={line.key} line={line} />)}</ul>
     </> : <Empty icon={<ReceiptText size={22} />} title="Nessuna voce attiva">
-      Attiva le voci in Impostazioni → Parametri di legge e bancari e abbina le categorie in «Spese detraibili per categoria».
+      Attiva le voci in Impostazioni → Funzioni → Parametri di legge e bancari e abbina le categorie in «Spese detraibili per categoria».
     </Empty>}
     {summary.warnings.length > 0 && <ul className="tax-warnings">{summary.warnings.map((text) => <li key={text}><AlertTriangle size={15} /> {text}</li>)}</ul>}
     <p className="panel-note">Le spese contano per data di pagamento (anno solare), anche con un inizio del mese personalizzato.</p>

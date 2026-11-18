@@ -12,7 +12,7 @@ import {
 } from "../lib/ledger";
 import { debtStatus, type DebtStatus } from "../lib/debts";
 import { investmentHistory, investmentSummary } from "../lib/investments";
-import { AccountGlyph, Empty, HistoryChart, PanelTitle, axisMoney } from "./ledger-views";
+import { AccountGlyph, Empty, HistoryChart, NO_VALUE, PanelTitle, axisMoney } from "./ledger-views";
 
 export type PatrimonioTab = "accounts" | "investments" | "debts" | "credits" | "goals" | "fund" | "projection";
 
@@ -115,7 +115,7 @@ function AccountsTab({ ledger, year, month, monthChange, onAccount, onBalance, o
             <div><h3>{account.value.name}</h3><span>{ACCOUNT_TYPES[account.value.type]}</span></div>
             <button className="icon-button quiet" type="button" aria-label={`Modifica ${account.value.name}`} title="Modifica, archivia o elimina" onClick={() => onAccount(account)}><Pencil size={16} /></button>
           </div>
-          <strong>{money(amount)}</strong>
+          {amount === null ? <strong className="account-empty">{NO_VALUE}</strong> : <strong>{money(amount)}</strong>}
           <span className="account-detail">{exact ? "Saldo registrato" : snapshot ? `Da ${monthLabel(snapshot.value.month)} + movimenti collegati` : "Saldo iniziale da registrare"}</span>
           <button type="button" className="button secondary" onClick={() => onBalance(account)}>{exact ? "Modifica saldo" : "Registra saldo"}</button>
         </article>)}

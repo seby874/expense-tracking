@@ -1,6 +1,7 @@
 import { CalendarClock, CheckCheck, Pause, Pencil, Plus, Repeat, SkipForward } from "lucide-react";
 import { money, shortDate, type Ledger, type Recurring } from "../lib/ledger";
 import { nextDate, scheduleLabel, type DueItem } from "../lib/recurring";
+import { freeOccurrence } from "../lib/fixed";
 import { TYPE_ICONS } from "./ledger-forms";
 import { Empty, PanelTitle } from "./ledger-views";
 
@@ -56,6 +57,9 @@ export function RecurringPanel({ ledger, onNew, onEdit }: {
         const { template, schedule, paused } = recurring.value;
         const Icon = TYPE_ICONS[template.type];
         const next = nextDate(schedule);
+        // Prova gratuita o mese sospeso: la prossima scadenza non costa nulla, lo si dice invece di mostrare l'importo.
+        const free = !paused && next !== null && freeOccurrence(recurring, next);
+        const trialEnd = recurring.value.fixed?.status === "trial" ? recurring.value.fixed.trialEnd : undefined;
         const category = template.type === "transfer" ? `Trasferimento → ${accounts.get(template.toAccountId) ?? ""}`
           : template.type === "repayment" ? `Rata · ${accounts.get(template.debtId) ?? "debito"}` : labels.get(template.labelId) ?? "";
         return <li key={recurring.id} className={paused || !next ? "is-muted" : undefined}>
@@ -65,8 +69,10 @@ export function RecurringPanel({ ledger, onNew, onEdit }: {
             <small><Repeat size={12} /> {scheduleLabel(schedule)}{category && ` · ${category}`}</small>
           </div>
           <div className="recurring-next">
-            <b className={`entry-amount amount-${template.type}`}>{amountText(recurring)}</b>
-            <small>{paused ? <><Pause size={12} /> In pausa</> : next ? <><CalendarClock size={12} /> {shortDate(next)}</> : "Concluso"}</small>
+            {free ? <b className="entry-amount free-amount">Gratis</b> : <b className={`entry-amount amount-${template.type}`}>{amountText(recurring)}</b>}
+            <small>{paused ? <><Pause size={12} /> In pausa</>
+              : free ? (trialEnd && next && next <= trialEnd ? `Prova fino al ${shortDate(trialEnd)}, poi ${amountText(recurring)}` : `Sospeso il ${shortDate(next!)}`)
+              : next ? <><CalendarClock size={12} /> {shortDate(next)}</> : "Concluso"}</small>
           </div>
           <button type="button" className="icon-button quiet" aria-label={`Modifica ${template.title}`} onClick={() => onEdit(recurring)}><Pencil size={16} /></button>
         </li>;

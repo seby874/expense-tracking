@@ -23,8 +23,10 @@ function missingBalances(ledger: Ledger, month: string) {
 }
 
 /** Promemoria in Panoramica. "Più tardi" li nasconde per qualche giorno su questo dispositivo. */
-export function Reminders({ ledger, today, onQuick, onBalance, onBackup }: {
+export function Reminders({ ledger, today, onQuick, onBalance, onBackup, backupScheduled }: {
   ledger: Ledger; today: string; onQuick: () => void; onBalance: (account: Account, month: string) => void; onBackup: () => void;
+  /** Con il backup automatico attivo ci pensano già il suo avviso e il controllo del mese: niente terzo promemoria. */
+  backupScheduled: boolean;
 }) {
   const [, refresh] = useState(0);
   if (!readLook().reminders) return null;
@@ -42,7 +44,7 @@ export function Reminders({ ledger, today, onQuick, onBalance, onBackup }: {
     action: "Registra", run: () => onBalance(missing[0], month),
   });
 
-  if (ledger.movements.length >= 20) {
+  if (!backupScheduled && ledger.movements.length >= 20) {
     const backup = lastBackup();
     const age = backup ? daysBetween(backup, today) : null;
     if (age === null || age > 30) items.push({

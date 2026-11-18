@@ -159,7 +159,7 @@ export function taxSummary(ledger: Ledger, year: number): TaxSummary {
   if (params.income === null) warnings.push("Reddito non indicato: con redditi oltre 75.000 € alcune detrazioni hanno un tetto, oltre 120.000 € si riducono.");
   else if (params.income > OVERALL_CAP_FROM) warnings.push("Con un reddito oltre 75.000 € si applica un tetto complessivo ad alcune detrazioni: verifica con il CAF.");
   if (factor < 1) warnings.push(`Reddito oltre 120.000 €: le detrazioni al 19% (escluse sanitarie e mutuo) sono ridotte al ${Math.round(factor * 100)}%.`);
-  if (inherited) warnings.push(`Parametri del ${year} non ancora confermati: controllali in Impostazioni → Parametri di legge e bancari.`);
+  if (inherited) warnings.push(`Parametri del ${year} non ancora confermati: controllali in Impostazioni → Funzioni → Parametri di legge e bancari.`);
 
   return {
     year, params, inherited, lines,

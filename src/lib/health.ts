@@ -120,7 +120,7 @@ export function healthChecks(ledger: Ledger, today: string, input: HealthInput):
   if (moduleOn(ledger.settings, "fixed")) {
     const alerts = fixedOverview(ledger, today).items.filter((item) => item.alert);
     add(alerts.length
-      ? { id: "fixed", level: "warn", title: `Abbonamenti: ${alerts.map((item) => `${item.recurring.value.template.title} (${item.alert})`).join("; ")}`, action: "fixed" }
+      ? { id: "fixed", level: "warn", title: `Abbonamenti: ${alerts.map((item) => `${item.recurring.value.template.title} (${(item.alert ?? "").replace(/\.$/, "").replace(/^\w/, (letter) => letter.toLowerCase())})`).join("; ")}`, action: "fixed" }
       : { id: "fixed", level: "ok", title: "Abbonamenti: nessun aumento di prezzo né disdetta in scadenza" });
   }
 

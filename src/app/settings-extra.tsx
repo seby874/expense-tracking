@@ -1,7 +1,7 @@
 import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
 import {
-  ArrowDown, ArrowUp, CalendarRange, CircleAlert, DatabaseBackup, EyeOff, FileUp, Keyboard, LayoutGrid, Palette, Pencil, Plus,
-  RotateCcw, Star, Tag, Trash2, TriangleAlert, Type,
+  AppWindow, Monitor, Moon, Sun, ArrowDown, ArrowUp, CalendarRange, CircleAlert, DatabaseBackup, EyeOff, FileUp, Keyboard, LayoutDashboard, Palette, Pencil, Plus,
+  RotateCcw, Rows3, Star, Tag, Trash2, TriangleAlert, Type, Wind,
 } from "lucide-react";
 import {
   NO_VERSION, ENTRY_TYPES, allTags, hasTag, money, monthLabel, sameName, shortDate,
@@ -15,7 +15,7 @@ import type { TrashItem } from "../lib/ledger-sync";
 import { planRestore, type RestorePlan } from "../lib/data-io";
 import { entryText, readZip } from "../lib/backup/zip";
 import { decryptBackup, isEncrypted } from "../lib/backup/crypto";
-import { readLook, saveLook, type Density, type LookPrefs, type StartScreen, type TextSize } from "../lib/preferences";
+import { readLook, readTheme, saveLook, saveTheme, type Density, type LookPrefs, type StartScreen, type TextSize, type ThemeMode } from "../lib/preferences";
 import { FormError } from "./ledger-forms";
 import { cleanTag } from "./tags";
 
@@ -127,14 +127,25 @@ export function TrashPanel({ ledger, trash, busy, demo, onRestore, onPurge }: {
 
 const START_SCREENS: [StartScreen, string][] = [["overview", "Panoramica"], ["movements", "Movimenti"], ["accounts", "Patrimonio"], ["reports", "Analisi"], ["quick", "Inserimento veloce"]];
 
+const THEMES: [ThemeMode, string, typeof Sun][] = [["auto", "Automatico", Monitor], ["light", "Chiaro", Sun], ["dark", "Scuro", Moon]];
+
 export function PersonalPanel() {
   const [look, setLook] = useState<LookPrefs>(readLook);
+  const [theme, setTheme] = useState<ThemeMode>(readTheme);
   const update = (change: Partial<LookPrefs>) => { const next = { ...look, ...change }; setLook(next); saveLook(next); };
   return <section className="panel device-panel">
-    <PanelHead icon={<LayoutGrid size={18} />} title="Personalizzazione" subtitle="Valgono solo per questo browser." />
+    <PanelHead icon={<Palette size={18} />} title="Aspetto e dispositivo" subtitle="Queste scelte valgono solo per questo browser." />
     <ul className="security-list">
       <li>
-        <span className="security-icon"><LayoutGrid size={18} /></span>
+        <span className="security-icon">{theme === "dark" ? <Moon size={18} /> : theme === "light" ? <Sun size={18} /> : <Monitor size={18} />}</span>
+        <div><strong>Tema</strong><p>{theme === "auto" ? "Segue l’impostazione chiaro/scuro del sistema." : theme === "dark" ? "Sempre scuro." : "Sempre chiaro."}</p></div>
+        <div className="segmented" role="group" aria-label="Tema">
+          {THEMES.map(([value, title, Icon]) => <button type="button" key={value} aria-pressed={theme === value}
+            onClick={() => { setTheme(value); saveTheme(value); }}><Icon size={15} />{title}</button>)}
+        </div>
+      </li>
+      <li>
+        <span className="security-icon"><AppWindow size={18} /></span>
         <div><strong>Schermata d’apertura</strong><p>Cosa vedi appena apri l’app.</p></div>
         <label><span className="sr-only">Schermata d’apertura</span>
           <select value={look.start} onChange={(event) => update({ start: event.target.value as StartScreen })}>
@@ -148,7 +159,7 @@ export function PersonalPanel() {
           <span aria-hidden="true" /><span className="sr-only">Modalità discreta all’apertura</span></label>
       </li>
       <li>
-        <span className="security-icon"><LayoutGrid size={18} /></span>
+        <span className="security-icon"><Rows3 size={18} /></span>
         <div><strong>Densità</strong><p>{look.density === "compact" ? "Più informazioni nello stesso spazio." : "Spazi ampi, più leggibile."}</p></div>
         <div className="segmented" role="group" aria-label="Densità">
           {([["comfortable", "Comoda"], ["compact", "Compatta"]] as [Density, string][]).map(([value, title]) =>
@@ -173,17 +184,17 @@ export function PersonalPanel() {
       </li>
       <li>
         <span className="security-icon"><CircleAlert size={18} /></span>
-        <div><strong>Promemoria</strong><p>In Panoramica: giorni senza movimenti, saldi di fine mese da registrare, backup da scaricare.</p></div>
+        <div><strong>Promemoria</strong><p>In Panoramica: giorni senza movimenti, saldi di fine mese da registrare e, se il backup automatico è spento, backup da scaricare.</p></div>
         <label className="switch"><input type="checkbox" checked={look.reminders} onChange={(event) => update({ reminders: event.target.checked })} />
           <span aria-hidden="true" /><span className="sr-only">Promemoria</span></label>
       </li>
       <li>
-        <span className="security-icon"><Type size={18} /></span>
+        <span className="security-icon"><Wind size={18} /></span>
         <div><strong>Riduci le animazioni</strong><p>Niente transizioni ed effetti di movimento: l’app risponde più asciutta, utile su telefoni lenti.</p></div>
         <label className="switch"><input type="checkbox" checked={look.calm} onChange={(event) => update({ calm: event.target.checked })} />
           <span aria-hidden="true" /><span className="sr-only">Riduci le animazioni</span></label>
       </li>
-      <li>
+      <li className="keyboard-only">
         <span className="security-icon"><Keyboard size={18} /></span>
         <div><strong>Scorciatoie da tastiera</strong>
           <p><kbd>N</kbd> nuovo movimento · <kbd>V</kbd> spesa veloce · <kbd>/</kbd> cerca · <kbd>1</kbd>–<kbd>5</kbd> sezioni · <kbd>D</kbd> modalità discreta · <kbd>Esc</kbd> chiude</p></div>
@@ -204,7 +215,7 @@ export function OverviewPanel() {
     store(next);
   };
   return <section className="panel settings-extra">
-    <PanelHead icon={<LayoutGrid size={18} />} title="Panoramica" subtitle="Scegli quali riquadri vedere e in che ordine (solo su questo dispositivo)." />
+    <PanelHead icon={<LayoutDashboard size={18} />} title="Riquadri della Panoramica" subtitle="Scegli quali riquadri vedere e in che ordine (solo su questo dispositivo)." />
     <ul className="rule-list widget-list">{list.map((item, index) => <li key={item.key}>
       <label className="check-row compact"><input type="checkbox" checked={item.on} onChange={(event) => store(list.map((entry) => entry.key === item.key ? { ...entry, on: event.target.checked } : entry))} />
         <span><strong>{OVERVIEW_WIDGETS[item.key]}</strong></span></label>
@@ -216,34 +227,26 @@ export function OverviewPanel() {
   </section>;
 }
 
-// ---------------------------------------------------------------- Conti e categorie: aspetto e ordine
+// ---------------------------------------------------------------- Conti: aspetto e ordine
 
-type Group = "account" | "expense" | "income";
+/** Sposta una voce di una posizione e riscrive solo quelle che cambiano davvero posto. */
+export function reorderActions<T extends Account | Label>(items: T[], index: number, step: -1 | 1): Mutation[] {
+  const next = [...items];
+  const [item] = next.splice(index, 1);
+  next.splice(index + step, 0, item);
+  return next.flatMap((record, order) => record.value.order === order ? []
+    : [{ op: "save" as const, record: { ...record, value: { ...record.value, order } } as LedgerRecord }]);
+}
 
+/** Ordine e aspetto dei conti (le categorie si ordinano nei loro pannelli). */
 export function OrganizePanel({ ledger, busy, onCommit, onStyle }: {
   ledger: Ledger; busy: boolean; onCommit: (actions: Mutation[], message: string) => void; onStyle: (record: Account | Label) => void;
 }) {
-  const [group, setGroup] = useState<Group>("account");
-  const items: (Account | Label)[] = group === "account"
-    ? ledger.accounts.filter((account) => !account.value.archived)
-    : ledger.labels.filter((label) => label.value.type === group && !label.value.archived);
-
-  /** Riscrive la posizione di tutto il gruppo (solo le voci che cambiano davvero). */
-  function move(index: number, step: -1 | 1) {
-    const next = [...items];
-    const [item] = next.splice(index, 1);
-    next.splice(index + step, 0, item);
-    const actions = next.flatMap((record, order) => record.value.order === order ? []
-      : [{ op: "save" as const, record: { ...record, value: { ...record.value, order } } as LedgerRecord }]);
-    onCommit(actions, "Ordine aggiornato.");
-  }
+  const items = ledger.accounts.filter((account) => !account.value.archived);
+  const move = (index: number, step: -1 | 1) => onCommit(reorderActions(items, index, step), "Ordine aggiornato.");
 
   return <section className="panel settings-extra">
-    <PanelHead icon={<Palette size={18} />} title="Conti e categorie" subtitle="Ordine, colori e icone: valgono su tutti i dispositivi." />
-    <div className="segmented" role="group" aria-label="Cosa organizzare">
-      {([["account", "Conti"], ["expense", "Categorie di spesa"], ["income", "Fonti di entrata"]] as [Group, string][]).map(([value, title]) =>
-        <button type="button" key={value} aria-pressed={group === value} onClick={() => setGroup(value)}>{title}</button>)}
-    </div>
+    <PanelHead icon={<Palette size={18} />} title="Ordine e aspetto dei conti" subtitle="Ordine, colori e icone dei conti: valgono su tutti i dispositivi." />
     <ul className="rule-list organize-list">{items.map((item, index) => <li key={item.id}>
       <div className="organize-name">
         {item.kind === "account"
@@ -427,7 +430,7 @@ export function RestoreDialog({ records, busy, error, progress, onCommit, onCanc
       <li>{plan.restored.toLocaleString("it-IT")} {plan.restored === 1 ? "voce da ripristinare" : "voci da ripristinare"}</li>
       {plan.unchanged > 0 && <li>{plan.unchanged.toLocaleString("it-IT")} già identiche (saltate)</li>}
       {plan.invalid > 0 && <li>{plan.invalid.toLocaleString("it-IT")} non valide (ignorate)</li>}
-      {plan.skippedYears.length > 0 && <li>Saltate le voci di {plan.skippedYears.join(", ")}: {plan.skippedYears.length === 1 ? "l’anno è archiviato" : "gli anni sono archiviati"}. Riaprili in Impostazioni → Archivio e ripeti il ripristino.</li>}
+      {plan.skippedYears.length > 0 && <li>Saltate le voci di {plan.skippedYears.join(", ")}: {plan.skippedYears.length === 1 ? "l’anno è archiviato" : "gli anni sono archiviati"}. Riaprili in Impostazioni → Dati e backup → Archivio annuale e ripeti il ripristino.</li>}
     </ul>{!writes && <p className="form-help">Non c’è nulla di nuovo da ripristinare.</p>}</div>}
     {progress && <p className="form-help" role="status">{progress}</p>}
     <FormError message={error} />

@@ -2,6 +2,10 @@
 
 App personale in italiano per registrare entrate, spese, trasferimenti, saldi dei conti e patrimonio netto. Interfaccia React + Vite, dati su Cloud Firestore, accesso con Firebase Authentication (email e password).
 
+## Novità della 2.1
+
+Revisione grafica su PC e telefono: sul telefono un menu fisso in basso (le altre sezioni in «Altro») e un'intestazione più compatta; Impostazioni divise in schede (Generali, Aspetto, Funzioni, Dati e backup, Sicurezza) senza pannelli doppi; Panoramica e Analisi su colonne indipendenti, senza vuoti sotto i riquadri corti; un solo segno meno (−) in tutta l'app; calendario con importi; pagine mai più larghe dello schermo del telefono.
+
 ## Novità della 2.0
 
 Pensata per durare anni senza modifiche: regole e parametri di legge sono dati modificabili, i dati sono portabili.
@@ -112,6 +116,11 @@ src/
   lib/health.ts         controllo di salute mensile
   lib/__tests__/        test (Vitest)
   app/settings-v2.tsx   funzioni, familiari, parametri, detrazioni, backup, archivio
+  app/settings-page.tsx Impostazioni a schede, categorie e fonti (con ordine e aspetto), sicurezza
+  app/mobile-nav.tsx    menu in basso del telefono
+  app/board.tsx         riquadri su due colonne indipendenti (Panoramica, Analisi)
+  app/layout-2-1.css    stili della revisione grafica 2.1 (dopo globals.css)
+  lib/input-format.ts   testo iniziale dei campi numerici (100.000,00 e 0,2)
   app/analysis.tsx      schede di Analisi, Dichiarazione, rimborsi
   app/fund.tsx          fondo di emergenza e conti deposito
   app/fixed.tsx         spese fisse e abbonamenti

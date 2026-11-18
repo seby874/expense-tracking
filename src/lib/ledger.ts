@@ -714,14 +714,19 @@ export function isDiscreet() { return discreet; }
 
 export function money(value: number | null) {
   if (value === null) return "—";
-  return discreet ? "••• €" : euros.format(value / 100);
+  return discreet ? "••• €" : minus(euros.format(value / 100));
+}
+
+/** Segno meno tipografico (−) al posto del trattino, uguale in tutta l'app. */
+function minus(text: string) {
+  return text.replace(/^-/, "−");
 }
 
 const wholeEuros = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 
 /** Come money(), arrotondato all'euro (per i testi riassuntivi). */
 export function wholeMoney(value: number) {
-  return discreet ? "••• €" : wholeEuros.format(Math.round(value / 100));
+  return discreet ? "••• €" : minus(wholeEuros.format(Math.round(value / 100)));
 }
 
 export function rate(value: number | null) {

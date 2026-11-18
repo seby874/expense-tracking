@@ -13,6 +13,7 @@ import { archivableYears, estimateReads, FREE_DAILY_READS, KEEP_OPEN_YEARS, left
 import { DEDUCTIONS, MODULE_INFO, allModules, moduleOn, paramsFor } from "../lib/params";
 import { dependentShare, maskTaxCode, normalizeTaxCode, personName, taxCodeInfo, validTaxCode } from "../lib/people";
 import { SUGGESTED_DEDUCTIONS } from "../lib/tax";
+import { euroInput, percentInput } from "../lib/input-format";
 import { PanelHead } from "./settings-extra";
 
 // Pannelli delle Impostazioni aggiunti con la versione 2.0.
@@ -42,7 +43,7 @@ export function ArchivePanel({ ledger, today, documents, busy, demo, onArchive, 
       subtitle={`Gli anni chiusi da più di ${KEEP_OPEN_YEARS} anni diventano pochi documenti: l'app legge meno da Firestore. Restano visibili ovunque, in sola lettura.`} />
     <ul className="security-list"><li>
       <span className="security-icon"><Gauge size={18} /></span>
-      <div><strong>{demo ? "Dati di esempio" : `${documents.toLocaleString("it-IT")} documenti letti a ogni apertura`}</strong>
+      <div><strong>{demo ? "Letture stimate (con i dati di esempio non si legge nulla)" : `${documents.toLocaleString("it-IT")} ${documents === 1 ? "documento letto" : "documenti letti"} a ogni apertura`}</strong>
         <p>Con {opens} aperture al giorno: circa <b className={`budget-left level-${level}`}>{reads.perDay.toLocaleString("it-IT")} letture</b> su {FREE_DAILY_READS.toLocaleString("it-IT")} gratuite ({percent(reads.share)}).
           {saving > 0 && ` Archiviando gli anni proposti scenderesti di circa ${saving.toLocaleString("it-IT")} documenti (dopo 60 giorni, quando spariscono le voci eliminate).`}</p></div>
       <select aria-label="Aperture al giorno" value={opens} onChange={(event) => setOpens(Number(event.target.value))}>
@@ -59,7 +60,7 @@ export function ArchivePanel({ ledger, today, documents, busy, demo, onArchive, 
     {archived.length > 0 && <>
       <p className="panel-note">Anni archiviati (sola lettura):</p>
       <ul className="rule-list">{archived.map((year) => <li key={year}>
-        <div><strong>{year}</strong><small>{ledger.archives.filter((item) => item.value.year === year).length} documenti
+        <div><strong>{year}</strong><small>{(() => { const count = ledger.archives.filter((item) => item.value.year === year).length; return `${count} ${count === 1 ? "documento" : "documenti"}`; })()}
           {leftovers(ledger, year).length > 0 && ` · archiviazione interrotta: ${leftovers(ledger, year).length} voci da completare`}</small></div>
         <span className="archived-actions">
           {leftovers(ledger, year).length > 0 && <button type="button" className="text-button" disabled={busy} onClick={() => onArchive(year)}><Archive size={14} /> Completa</button>}
@@ -83,6 +84,8 @@ export function BackupPanel({ busy, demo, onBackupNow }: { busy: boolean; demo: 
   const [password, setPassword] = useState("");
   const [repeat, setRepeat] = useState("");
   const supported = folderSupported();
+  // Sul telefono «Drive per desktop» non esiste: il testo cambia.
+  const touch = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 
   async function refreshFolder(ask = false) {
     const handle = await savedFolder();
@@ -129,7 +132,9 @@ export function BackupPanel({ busy, demo, onBackupNow }: { busy: boolean; demo: 
                 ? "I backup si salvano qui da soli e si tengono gli ultimi 7 giorni, 4 settimane e 12 mesi (gli altri file «expense-tracking-backup-…» della cartella si cancellano: tieni le copie a mano altrove). Se è una cartella di Google Drive (Drive per desktop) arrivano anche su Drive."
                 : folder
                   ? "Il browser chiede di nuovo il permesso per questa cartella."
-                  : "Scegli una cartella dentro «Google Drive» (installa Drive per desktop): i backup arriveranno su Drive in automatico."}</p></div>
+                  : touch
+                    ? "Scegli una cartella del telefono: i backup si salveranno lì da soli. Per averli anche su Google Drive caricali dall’app Drive, oppure scegli la cartella dal PC con Drive per desktop."
+                    : "Scegli una cartella dentro «Google Drive» (installa Drive per desktop): i backup arriveranno su Drive in automatico."}</p></div>
           {supported && (folder?.state === "prompt"
             ? <button type="button" className="button secondary small" onClick={() => void refreshFolder(true)}>Riautorizza</button>
             : <span className="archived-actions">
@@ -178,9 +183,7 @@ export function settingsAction(ledger: Ledger, change: Partial<Ledger["settings"
   return { op: "save", record: { kind: "setting", id: "general", version: ledger.settingsRecord?.version ?? null, value: { ...ledger.settings, ...change } } };
 }
 
-function euroText(cents: number | null | undefined) {
-  return cents === null || cents === undefined ? "" : (cents / 100).toFixed(2).replace(".", ",");
-}
+const euroText = euroInput;
 
 function numberValue(text: string) {
   const value = Number(text.replace(",", ".").trim());
@@ -351,7 +354,7 @@ export function ParamsPanel({ ledger, today, busy, onCommit }: { ledger: Ledger;
   function build(): Params["value"] | null {
     const next: Params["value"] = { ...value, deductions: { ...value.deductions }, year, confirmed: true };
     for (const field of PARAM_FIELDS) {
-      const raw = text(field.key, field.unit === "%" ? String(value[field.key]) : euroText(value[field.key]));
+      const raw = text(field.key, field.unit === "%" ? percentInput(value[field.key]) : euroText(value[field.key]));
       const parsed = field.unit === "%" ? numberValue(raw) : parseMoney(raw);
       if (parsed === null || parsed < 0) { setError(`Controlla «${field.name}».`); return null; }
       (next as Record<string, unknown>)[field.key] = parsed;
@@ -364,7 +367,7 @@ export function ParamsPanel({ ledger, today, busy, onCommit }: { ledger: Ledger;
     } else next.income = null;
     for (const info of DEDUCTIONS) {
       const rule = value.deductions[info.key];
-      const rate = numberValue(text(`${info.key}.rate`, String(rule.rate)));
+      const rate = numberValue(text(`${info.key}.rate`, percentInput(rule.rate)));
       const threshold = parseMoney(text(`${info.key}.threshold`, euroText(rule.threshold)) || "0");
       const capText = text(`${info.key}.cap`, euroText(rule.cap));
       const cap = capText.trim() ? parseMoney(capText) : null;
@@ -396,7 +399,7 @@ export function ParamsPanel({ ledger, today, busy, onCommit }: { ledger: Ledger;
     {inherited && <p className="panel-note">{record ? "" : `Valori del ${year} non ancora salvati: sono copiati ${ledger.params.some((item) => item.value.year < year) ? "dall'anno precedente" : "dai valori di partenza"}. Controllali e premi «Conferma».`}</p>}
     <div className="params-grid">
       {PARAM_FIELDS.map((field) => <label key={field.key}>{field.name} ({field.unit})
-        <input inputMode="decimal" value={text(field.key, field.unit === "%" ? String(value[field.key]) : euroText(value[field.key]))}
+        <input inputMode="decimal" value={text(field.key, field.unit === "%" ? percentInput(value[field.key]) : euroText(value[field.key]))}
           onChange={(event) => set(field.key, event.target.value)} /></label>)}
       {tax && <label>Reddito complessivo {year} (€) <span className="optional">dalla CU o dal 730, facoltativo</span>
         <input inputMode="decimal" value={text("income", euroText(value.income))} onChange={(event) => set("income", event.target.value)} /></label>}
@@ -408,7 +411,7 @@ export function ParamsPanel({ ledger, today, busy, onCommit }: { ledger: Ledger;
         return <tr key={info.key}>
           <td><span title={info.hint}>{info.name}</span>{info.perPerson && <small> · per persona</small>}{info.deduction && <small> · deduzione dal reddito</small>}</td>
           <td><input type="checkbox" aria-label={`Attiva ${info.name}`} checked={enabled.has(info.key)} disabled={busy} onChange={(event) => toggleDeduction(info.key, event.target.checked)} /></td>
-          <td className="number"><input className="cell-input" inputMode="decimal" value={text(`${info.key}.rate`, String(rule.rate))} onChange={(event) => set(`${info.key}.rate`, event.target.value)} /></td>
+          <td className="number"><input className="cell-input" inputMode="decimal" value={text(`${info.key}.rate`, percentInput(rule.rate))} onChange={(event) => set(`${info.key}.rate`, event.target.value)} /></td>
           <td className="number"><input className="cell-input" inputMode="decimal" value={text(`${info.key}.threshold`, euroText(rule.threshold))} onChange={(event) => set(`${info.key}.threshold`, event.target.value)} /></td>
           <td className="number"><input className="cell-input" inputMode="decimal" placeholder="nessuno" value={text(`${info.key}.cap`, euroText(rule.cap))} onChange={(event) => set(`${info.key}.cap`, event.target.value)} /></td>
         </tr>;

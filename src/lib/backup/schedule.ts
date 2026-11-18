@@ -73,7 +73,7 @@ export function passwordMissing(prefs: BackupPrefs) {
 /** Crea il file di backup (cifrato se c'è una password). */
 export async function makeBackup(records: LedgerRecord[], ledger: Ledger, password: string, today: string) {
   if (passwordMissing({ frequency: "off", password, last: null })) {
-    throw new Error("i backup erano cifrati ma la password non c’è più: reimpostala in Impostazioni → Backup (o rimuovi la cifratura).");
+    throw new Error("i backup erano cifrati ma la password non c’è più: reimpostala in Impostazioni → Dati e backup → Backup automatico (o rimuovi la cifratura).");
   }
   const zip = buildBackupZip(records, ledger);
   const encrypted = !!password;

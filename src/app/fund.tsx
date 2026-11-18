@@ -8,6 +8,7 @@ import { BUCKET_LABELS, fundStatus, monthsToTarget } from "../lib/fund";
 import { CREDIT_LABELS, EARLY_LABELS, activeLines, depositYear, stepsText } from "../lib/deposit";
 import { paramsFor } from "../lib/params";
 import { Empty, PanelTitle } from "./ledger-views";
+import { PanelHead } from "./settings-extra";
 
 type Commit = (actions: Mutation[], message: string) => void;
 
@@ -267,8 +268,8 @@ export function FundSettingsPanel({ ledger, busy, onCommit, settingsAction }: {
   }
 
   return <section className="panel settings-extra">
-    <PanelTitle title="Fondo di emergenza" subtitle="Quanto conta ogni tipo di liquidità nei mesi coperti, l’obiettivo e le spese essenziali." />
-    <div className="params-grid">
+    <PanelHead icon={<LifeBuoy size={18} />} title="Fondo di emergenza" subtitle="Quanto conta ogni tipo di liquidità nei mesi coperti, l’obiettivo e le spese essenziali." />
+    <div className="params-grid fund-weights">
       {(Object.keys(current.weights) as (keyof typeof current.weights)[]).map((key) => <label key={key}>{BUCKET_LABELS[key]} (%)
         <input inputMode="decimal" value={weights[key]} onChange={(event) => setWeights((old) => ({ ...old, [key]: event.target.value }))} /></label>)}
       <label>Obiettivo (mesi)<input inputMode="decimal" value={target} onChange={(event) => setTarget(event.target.value)} /></label>
@@ -276,9 +277,9 @@ export function FundSettingsPanel({ ledger, busy, onCommit, settingsAction }: {
     <label className="check-row compact"><input type="checkbox" checked={investments} onChange={(event) => setInvestments(event.target.checked)} />
       <span><strong>Conta anche gli investimenti</strong><small>Con il loro peso: il valore può scendere proprio quando servono.</small></span></label>
     {error && <p className="form-error" role="alert">{error}</p>}
-    <button type="button" className="button secondary" disabled={busy} onClick={save}>Salva</button>
+    <div className="panel-actions fund-save"><button type="button" className="button secondary" disabled={busy} onClick={save}>Salva</button></div>
     <p className="panel-note">Categorie essenziali (contano per le spese mensili da coprire; le rate dei debiti contano sempre):</p>
-    <div className="favorite-bar wrap">{labels.map((label) => <label key={label.id} className="check-row compact">
+    <div className="essential-chips">{labels.map((label) => <label key={label.id} className="check-row compact">
       <input type="checkbox" checked={!!label.value.essential} disabled={busy}
         onChange={(event) => onCommit([{ op: "save", record: { ...label, value: { ...label.value, essential: event.target.checked || undefined } } }], "Categoria aggiornata.")} />
       <span><strong>{label.value.name}</strong></span></label>)}</div>

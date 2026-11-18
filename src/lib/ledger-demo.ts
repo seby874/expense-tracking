@@ -212,7 +212,8 @@ export function sampleLedger(today = todayInRome()): LedgerRecord[] {
         add({ type: "expense", date: `${month}-${pad(day)}`, title: day === 25 ? "Mercato" : "Supermercato", amount: vary(6_500 + index * 250), labelId: "groceries",
           subcategory: day === 25 ? "Mercato" : "Supermercato", method: "Carta", accountId: "revolut", notes: "" });
       }
-      add({ type: "transfer", date: `${month}-03`, title: "Ricarica Revolut", amount: 45_000, accountId: "fineco", toAccountId: "revolut", notes: "" });
+      // La ricarica cresce con le spese degli anni: il conto della carta resta in positivo.
+      add({ type: "transfer", date: `${month}-03`, title: "Ricarica Revolut", amount: 48_000 + index * 2_200, accountId: "fineco", toAccountId: "revolut", notes: "" });
       add({ type: "expense", date: `${month}-14`, title: "Carburante", amount: vary(6_000), labelId: "transport", subcategory: "Carburante", method: "Carta", accountId: "revolut", notes: "" });
       if (rand() < 0.7) add({ type: "expense", date: `${month}-16`, title: rand() < 0.5 ? "Cena fuori" : "Pizzeria", amount: vary(4_500, 0.4), labelId: "out", subcategory: "Ristorante", method: "Carta", accountId: "revolut", notes: "" });
       if (rand() < 0.5) add({ type: "expense", date: `${month}-21`, title: "Farmacia", amount: vary(1_800, 0.5), labelId: "health", subcategory: "Farmacia", method: rand() < 0.4 ? "Contanti" : "Carta", accountId: "revolut", notes: "" });

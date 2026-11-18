@@ -15,6 +15,7 @@ import { IdleWarning, expiredMessage, useIdleLogout } from "./app/session-guard"
 // Font Inter incluso nell'app (nessun servizio esterno: la sicurezza della pagina vieta i font esterni).
 import "@fontsource-variable/inter";
 import "./app/globals.css";
+import "./app/layout-2-1.css";
 
 const ACTION_MODES: ActionMode[] = ["resetPassword", "verifyEmail", "recoverEmail"];
 

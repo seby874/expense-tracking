@@ -1,5 +1,8 @@
 import { useMemo, useState } from "react";
-import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, FileText, Plus, Printer, Telescope, Timer, Trash2 } from "lucide-react";
+import {
+  CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, CircleAlert, CopyX, DatabaseBackup, FileText, Gauge, HandCoins, Landmark, HeartHandshake, LifeBuoy, Pencil, Plus, ReceiptText,
+  Printer, Repeat, Scale, Telescope, Timer, Trash2, Users, WalletCards, type LucideIcon,
+} from "lucide-react";
 import {
   DEADLINE_TYPES, MONTHS, NO_VERSION, accountBalances, isDiscreet, money, monthLabel, newId, rate, shiftMonth, shortDate,
   type Deadline, type Ledger, type Mutation,
@@ -15,6 +18,7 @@ import { maskTaxCode, personName } from "../lib/people";
 import { debtStatus } from "../lib/debts";
 import type { HealthCheck } from "../lib/health";
 import { Empty, PanelTitle } from "./ledger-views";
+import { PanelHead } from "./settings-extra";
 
 type Commit = (actions: Mutation[], message: string) => void;
 
@@ -182,7 +186,7 @@ export function CalendarView({ ledger, today }: { ledger: Ledger; today: string 
   const totalOut = events.filter((event) => event.tone === "out").reduce((sum, event) => sum + (event.amount ?? 0), 0);
   const totalIn = events.filter((event) => event.tone === "in").reduce((sum, event) => sum + (event.amount ?? 0), 0);
   return <section className="panel">
-    <PanelTitle title={monthLabel(month)} subtitle={`In uscita ${money(totalOut)} · in entrata ${money(totalIn)} (previsti)`}
+    <PanelTitle title={monthLabel(month)} subtitle={`Previsti: uscite ${money(totalOut)} · entrate ${money(totalIn)}`}
       action={<span className="archived-actions">
         <button type="button" className="icon-button quiet" aria-label="Mese precedente" onClick={() => setMonth(shiftMonth(month, -1))}><ChevronLeft size={16} /></button>
         <button type="button" className="text-button" onClick={() => setMonth(today.slice(0, 7))}>Oggi</button>
@@ -199,9 +203,10 @@ export function CalendarView({ ledger, today }: { ledger: Ledger; today: string 
       {cells.map((day, index) => {
         const date = day >= 1 && day <= days ? `${month}-${String(day).padStart(2, "0")}` : null;
         const own = date ? events.filter((event) => event.date === date) : [];
-        return <div key={index} className={`calendar-day${date ? "" : " other"}${date === today ? " today" : ""}${own.length ? " has-events" : ""}`}>
+        return <div key={index} className={`calendar-day${date ? "" : " other"}${date === today ? " today" : ""}${own.length ? " has-events" : ""}${index % 7 >= 5 ? " weekend" : ""}`}>
           {date && <b>{day}</b>}
-          {own.slice(0, 3).map((event, n) => <i key={n} className={event.tone} title={`${event.title}${event.amount !== null ? ` · ${money(event.amount)}` : ""}`}>{event.title}</i>)}
+          {own.slice(0, 3).map((event, n) => <i key={n} className={event.tone} title={`${event.title}${event.amount !== null ? ` · ${money(event.amount)}` : ""}`}>
+            <span>{event.title}</span>{event.amount !== null && <em>{event.tone === "out" ? "−" : event.tone === "in" ? "+" : ""}{money(event.amount)}</em>}</i>)}
           {own.length > 3 && <i>+{own.length - 3}</i>}
         </div>;
       })}
@@ -277,8 +282,8 @@ export function DeadlinesView({ ledger, today, busy, onCommit, onCreateExpense }
           {item.value.notes && <small>{item.value.notes}</small>}</div>
         <span className="archived-actions">
           {state !== "done" && <button type="button" className="text-button" disabled={busy} onClick={() => onCommit([completeDeadline(item, today)], item.value.repeatMonths ? "Fatta: spostata alla prossima data." : "Segnata come fatta.")}><CheckCircle2 size={14} /> Fatta</button>}
-          {state !== "done" && <button type="button" className="text-button" onClick={() => onCreateExpense(item)}><Plus size={14} /> Spesa</button>}
-          <button type="button" className="text-button" onClick={() => setEditing(item)}>Modifica</button>
+          {state !== "done" && <button type="button" className="icon-button quiet" aria-label={`Registra la spesa di ${item.value.title}`} title="Registra la spesa" onClick={() => onCreateExpense(item)}><ReceiptText size={15} /></button>}
+          <button type="button" className="icon-button quiet" aria-label={`Modifica ${item.value.title}`} title="Modifica" onClick={() => setEditing(item)}><Pencil size={15} /></button>
           <button type="button" className="icon-button quiet" aria-label={`Elimina ${item.value.title}`} disabled={busy}
             onClick={() => onCommit([{ op: "delete", kind: "deadline", id: item.id, version: item.version ?? NO_VERSION }], "Scadenza eliminata.")}><Trash2 size={15} /></button>
         </span>
@@ -337,7 +342,7 @@ export function DossierPanel({ ledger, today }: { ledger: Ledger; today: string 
   const balances = accountBalances(ledger, today.slice(0, 7));
   const fixed = fixedOverview(ledger, today);
   return <section className="panel settings-extra">
-    <PanelTitle title="Dossier per i familiari" subtitle="«Se mi succede qualcosa»: conti, debiti, abbonamenti, scadenze e dove sono i backup. Solo su richiesta: contiene dati molto sensibili."
+    <PanelHead icon={<HeartHandshake size={18} />} title="Dossier per i familiari" subtitle="«Se mi succede qualcosa»: conti, debiti, abbonamenti, scadenze e dove sono i backup. Solo su richiesta: contiene dati molto sensibili."
       action={<button type="button" className="button secondary small" onClick={() => setOpen((value) => !value)}>{open ? "Chiudi" : "Prepara il dossier"}</button>} />
     {open && <div className="print-area dossier">
       <label className="check-row compact"><input type="checkbox" checked={codes} onChange={(event) => setCodes(event.target.checked)} />
@@ -358,7 +363,7 @@ export function DossierPanel({ ledger, today }: { ledger: Ledger; today: string 
         <ul className="rule-list">{ledger.people.map((person) => <li key={person.id}><div><strong>{personName(person)}</strong>
           <small>{person.value.taxCode ? (codes && !isDiscreet() ? person.value.taxCode : maskTaxCode(person.value.taxCode)) : ""}</small></div></li>)}</ul></>}
       <h3 className="group-title">Backup dei dati</h3>
-      <p>I backup automatici sono file «expense-tracking-backup-AAAA-MM-GG» (.zip, o .etbackup se cifrati) nella cartella scelta in Impostazioni → Backup (di solito su Google Drive).
+      <p>I backup automatici sono file «expense-tracking-backup-AAAA-MM-GG» (.zip, o .etbackup se cifrati) nella cartella scelta in Impostazioni → Dati e backup (di solito su Google Drive).
         Dentro c’è LEGGIMI.md con le istruzioni per aprirli con Excel o Google Sheets. Per i file cifrati serve la password del backup.</p>
       <button type="button" className="button secondary" onClick={() => window.print()}><Printer size={15} /> Stampa / salva in PDF</button>
     </div>}
@@ -379,6 +384,7 @@ export function OverviewAlerts({ ledger, today, onOpenDeadlines, onOpenReport }:
   const report = today.slice(5, 7) === "01" && seen !== String(lastYear) && ledger.movements.some(({ value }) => value.date.startsWith(String(lastYear)));
   if (!urgent.length && !report) return null;
   return <section className="panel">
+    <PanelTitle title="Da non dimenticare" subtitle="Scadenze vicine o superate." />
     <ul className="status-list">
       {report && <li><FileText size={15} className="status-ok" /><div><strong>Il tuo {lastYear} è pronto</strong><small>Riepilogo dell’anno da conservare con il backup.</small></div>
         <span className="archived-actions"><button type="button" className="text-button" onClick={() => { onOpenReport(lastYear); markSeen(); }}>Apri</button>
@@ -400,6 +406,17 @@ export function OverviewAlerts({ ledger, today, onOpenDeadlines, onOpenReport }:
 
 // ---------------------------------------------------------------- Controllo di salute
 
+/** Icona di ogni controllo, scelta dal tipo (l'id può avere un suffisso, es. "balance-fineco"). */
+const HEALTH_ICONS: Record<string, LucideIcon> = {
+  backup: DatabaseBackup, reads: Gauge, invalid: CircleAlert, balance: WalletCards, balances: WalletCards, gaps: Scale, recurring: Repeat,
+  duplicates: CopyX, debt: WalletCards, fund: LifeBuoy, bank: Landmark, line: LifeBuoy, fixed: Repeat, params: Landmark, people: Users,
+  deadlines: Timer, refunds: HandCoins, trash: Trash2,
+};
+
+function healthIcon(check: HealthCheck) {
+  return HEALTH_ICONS[check.id.split("-")[0]] ?? CircleAlert;
+}
+
 export function HealthPanel({ checks, onAction, onSeen, onSnooze, compact = false }: {
   checks: HealthCheck[]; onAction: (check: HealthCheck) => void; onSeen?: () => void; onSnooze?: () => void; compact?: boolean;
 }) {
@@ -408,13 +425,13 @@ export function HealthPanel({ checks, onAction, onSeen, onSnooze, compact = fals
   const shown = all ? checks : checks.filter((item) => item.level !== "ok");
   const month = new Intl.DateTimeFormat("it-IT", { month: "long", year: "numeric" }).format(new Date());
   return <section className="panel health-panel">
-    <PanelTitle title={`Controllo di ${month}`} subtitle={`${counts.ok} ok · ${counts.warn} da vedere · ${counts.bad} importanti`}
+    <PanelTitle title={`Controllo di ${month}`} subtitle={`${counts.ok} ok · ${counts.warn} da vedere · ${counts.bad} ${counts.bad === 1 ? "importante" : "importanti"}`}
       action={compact ? <button type="button" className="text-button" onClick={() => setAll((value) => !value)}>{all ? "Solo i problemi" : "Mostra tutto"}</button> : undefined} />
-    {shown.length ? <ul className="status-list">{shown.map((check) => <li key={check.id}>
-      {check.level === "ok" ? <CheckCircle2 size={15} className="status-ok" /> : <Timer size={15} className={check.level === "bad" ? "status-bad" : "status-warn"} />}
+    {shown.length ? <ul className="status-list">{shown.map((check) => { const Icon = check.level === "ok" ? CheckCircle2 : healthIcon(check); return <li key={check.id}>
+      <Icon size={15} className={`status-${check.level}`} aria-label={check.level === "ok" ? "In ordine" : check.level === "bad" ? "Importante" : "Da vedere"} />
       <div><strong>{check.title}</strong>{check.detail && <small>{check.detail}</small>}</div>
       {check.action && check.level !== "ok" && <button type="button" className="text-button" onClick={() => onAction(check)}>Risolvi</button>}
-    </li>)}</ul> : <p className="panel-note">Tutto in ordine.</p>}
+    </li>; })}</ul> : <p className="panel-note">Tutto in ordine.</p>}
     {(onSeen || onSnooze) && <div className="modal-actions">
       {onSnooze && <button type="button" className="button secondary small" onClick={onSnooze}>Ricordamelo tra 7 giorni</button>}
       {onSeen && <button type="button" className="button primary small" onClick={onSeen}>Ho visto</button>}

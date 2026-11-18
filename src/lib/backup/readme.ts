@@ -16,7 +16,7 @@ ${list}
 
 | File | A cosa serve |
 |---|---|
-| \`dati/backup.json\` | Tutto, per **ripristinare** nell'app (Impostazioni → I tuoi dati → Ripristina backup). |
+| \`dati/backup.json\` | Tutto, per **ripristinare** nell'app (Impostazioni → Dati e backup → I tuoi dati → Ripristina backup). |
 | \`dati/schema.json\` | Descrizione formale dei dati (JSON Schema). |
 | \`fogli/*.csv\` | Una tabella per tipo di dato, per **Excel** e **Google Sheets**. |
 | \`database/dati.sql\` | Tabelle e dati per **PostgreSQL, MySQL/MariaDB, SQLite**. |
@@ -75,7 +75,7 @@ WHERE m.tipo = 'expense' AND m.data LIKE '2026-%' GROUP BY c.nome;
 1. Crea un progetto Firebase (Authentication con email/password, Firestore).
 2. Nel codice dell'app (repository GitHub) sostituisci la configurazione in \`src/lib/firebase.ts\`.
 3. In \`firestore.rules\` metti l'UID del nuovo account e pubblica le regole.
-4. Pubblica l'app (\`npm run build\`, cartella \`docs/\`), accedi, poi Impostazioni → Ripristina backup con questo file.
+4. Pubblica l'app (\`npm run build\`, cartella \`docs/\`), accedi, poi Impostazioni → Dati e backup → Ripristina backup con questo file.
 
 ### Un'altra app di finanza personale (Firefly III, Actual, YNAB…)
 Usa \`fogli/movimenti.csv\`: le colonne Data, Descrizione, Importo, Categoria, Conto sono quelle che

@@ -1,0 +1,185 @@
+/* Revisione grafica 2.1: correzioni emerse dagli screenshot di PC e telefono (18/11/2026). */
+
+/* ---------------------------------------------------------------- Correzioni */
+
+/* Caselle di spunta fuori dai moduli: senza questa regola prendevano l'altezza degli input di testo e scendevano sotto l'etichetta. */
+.check-row input[type="checkbox"] { width: 16px; height: 16px; min-height: 0; padding: 0; margin: 2px 0 0; flex: 0 0 16px; accent-color: var(--accent-solid); }
+.check-row { align-items: flex-start; }
+
+/* Le scelte a pulsanti non vanno a capo («12 mesi» spezzato su due righe). */
+.segmented button { white-space: nowrap; }
+
+/* Parametri: le etichette lunghe vanno a capo ma i campi restano allineati sulla stessa riga. */
+.params-grid > label { display: flex; flex-direction: column; justify-content: flex-end; }
+
+/* Pulsanti disattivati: restano riconoscibili come pulsanti (prima sembravano testo). */
+.button.secondary:disabled { border-style: dashed; box-shadow: none; }
+
+/* Pulsante «Ricomincia da zero» staccato dal testo. */
+.danger-panel .button { margin-top: 12px; }
+
+@media (max-width: 760px) {
+  /* Anno del periodo: «2026» intero anche con il carattere del telefono. */
+  .period-year select { width: 74px; }
+
+  /* Righe delle impostazioni: icona, testo e comando sempre nelle colonne giuste
+     (prima i colori finivano uno per riga e alcuni pulsanti uscivano dallo schermo a sinistra). */
+  .security-list li { grid-template-columns: 36px minmax(0, 1fr) auto; align-items: start; }
+  .security-list li > :nth-child(n+3) { grid-column: 2 / -1; justify-self: start; }
+  .security-list li > .switch { grid-column: 3; grid-row: 1; justify-self: end; margin-top: 2px; }
+  .security-list li > .segmented { grid-column: 1 / -1; justify-self: stretch; width: 100%; }
+  .security-list li > .segmented button { flex: 1; padding-inline: 4px; }
+  .security-list li > .archived-actions { justify-content: flex-start; }
+  .security-list li > select, .security-list li > label > select { min-width: 0; max-width: 100%; }
+
+  /* Il disegno decorativo del patrimonio netto non copre più le cifre. */
+  .net-decoration { display: none; }
+}
+
+/* Archivio annuale: respiro tra la stima delle letture e l'elenco degli anni. */
+.security-list + .rule-list, .security-list + .panel-note { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--line); }
+
+/* Fondo di emergenza: campi brevi affiancati, categorie essenziali come etichette compatte. */
+.fund-weights { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.fund-save { margin-top: 10px; }
+.essential-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.essential-chips .check-row { align-items: center; padding: 6px 11px 6px 9px; border-radius: 99px; }
+.essential-chips .check-row input[type="checkbox"] { margin: 0; }
+.essential-chips .check-row strong { font-size: 13px; }
+.essential-chips .check-row:has(input:checked) { border-color: var(--accent); background: var(--accent-pale); }
+
+/* Le scorciatoie da tastiera non servono su telefono e tablet. */
+@media (hover: none) and (pointer: coarse) { .keyboard-only { display: none !important; } }
+
+/* Conti e patrimonio senza saldo: frase al posto del trattino grande. */
+.stat-value.stat-empty, .account-card > strong.account-empty { font-size: 17px; font-weight: 680; letter-spacing: -.01em; color: var(--muted); margin-block: 10px 6px; }
+
+/* ---------------------------------------------------------------- Struttura su telefono */
+
+.topbar-brand, .bottom-nav { display: none; }
+.backup-notice .notice-detail { font-size: 12.5px; }
+
+@media (max-width: 760px) {
+  /* Menu in basso al posto delle due righe di icone in alto. */
+  .sidebar { display: none; }
+  .bottom-nav {
+    display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); position: fixed; z-index: 7; left: 0; right: 0; bottom: 0;
+    padding: 5px 6px calc(5px + env(safe-area-inset-bottom)); background: var(--sidebar); border-top: 1px solid #0c211c; box-shadow: 0 -6px 18px #0b1f1826;
+  }
+  .bottom-button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 52px; padding: 4px 2px; border: 0; border-radius: 10px;
+    background: transparent; color: #b9cfc5; font-size: 11.5px; font-weight: 640; line-height: 1.15; }
+  .bottom-button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bottom-button[aria-current="page"] { color: #effbf4; background: #c3f0d51c; }
+  .bottom-button[aria-current="page"] svg { color: #a7e8c7; }
+  .bottom-button:focus-visible, .bottom-more button:focus-visible { outline-color: #a7e8c7; outline-offset: -2px; }
+  .bottom-more { position: absolute; right: 8px; bottom: calc(100% + 8px); display: grid; gap: 2px; min-width: 200px; margin: 0; padding: 6px; list-style: none;
+    background: var(--surface); border: 1px solid var(--line-strong); border-radius: 14px; box-shadow: 0 12px 32px #0b1f1840; }
+  .bottom-more button { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 46px; padding: 8px 12px; border: 0; border-radius: 9px; background: transparent;
+    color: var(--ink); font-size: 14px; font-weight: 640; text-align: left; }
+  .bottom-more button svg { color: var(--accent); }
+  .bottom-more button[aria-current="page"] { background: var(--accent-pale); color: var(--accent); }
+
+  /* Pulsante + sopra il menu; spazio in fondo perché non copra l'ultima riga di contenuto. */
+  .fab { bottom: calc(76px + env(safe-area-inset-bottom)); width: 54px; height: 54px; }
+  .toast { bottom: calc(142px + env(safe-area-inset-bottom)); }
+  .content { padding-bottom: calc(150px + env(safe-area-inset-bottom)); }
+
+  /* Barra in alto: marchio a sinistra, stato e comandi a destra; la sezione è già nel titolo della pagina. */
+  .topbar { height: 52px; padding-inline: 12px; background: var(--sidebar) !important; border-bottom-color: #0c211c; }
+  .topbar-brand { display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; }
+  .topbar-brand .brand-mark { width: 30px; height: 30px; border-radius: 9px; }
+  .topbar-brand .brand-mark svg { width: 20px; height: 20px; }
+  .topbar-name { font-size: 16.5px; font-weight: 790; letter-spacing: -.04em; color: #f4fbf7; white-space: nowrap; }
+  .topbar-name span { color: #a7e8c7; }
+  .breadcrumbs { display: none; }
+  .privacy-badge { padding: 0; width: 30px; height: 30px; justify-content: center; border-radius: 50%; }
+  .privacy-badge .badge-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .privacy-badge i { width: 8px; height: 8px; }
+  html .topbar .icon-button.quiet { background: #ffffff0d; border-color: #ffffff1c; color: #c8dad2; }
+  html .topbar .privacy-badge { background: #ffffff0d; border-color: #ffffff1c; }
+
+  /* Intestazione della pagina più bassa: niente occhiello, titolo più piccolo, niente doppio «Nuovo movimento» (c'è il +). */
+  .content { padding-top: 16px; }
+  .eyebrow { display: none; }
+  .page-heading { margin-bottom: 14px; gap: 10px; }
+  .page-heading h1 { font-size: 27px; }
+  .page-heading p { font-size: 13px; margin-top: 3px; }
+  .page-actions .new-button { display: none; }
+  .page-actions:empty { display: none; }
+
+  /* Banner del backup su una riga. */
+  .backup-notice { flex-wrap: nowrap; padding: 9px 11px; gap: 9px; }
+  .backup-notice .notice-detail { display: none; }
+  .backup-notice > div { min-width: 0; }
+}
+.notice.backup-notice { margin: 0 0 14px; }
+
+/* ---------------------------------------------------------------- Impostazioni a schede */
+.settings-tabs { display: flex; gap: 4px; margin: 0 0 16px; padding: 4px; overflow-x: auto; scrollbar-width: none; background: var(--subtle); border: 1px solid var(--line); border-radius: 12px; }
+.settings-tabs::-webkit-scrollbar { display: none; }
+.settings-tabs button { display: inline-flex; align-items: center; gap: 7px; flex: none; min-height: 38px; padding: 7px 13px; border: 1px solid transparent; border-radius: 9px;
+  background: transparent; color: var(--muted); font-size: 13.5px; font-weight: 680; white-space: nowrap; }
+.settings-tabs button:hover { color: var(--ink); }
+.settings-tabs button[aria-selected="true"] { background: var(--surface); border-color: var(--line-strong); color: var(--accent); box-shadow: var(--shadow); }
+.settings-stack { display: grid; gap: 17px; }
+.settings-stack > *, .settings-stack > .split > * { margin: 0 !important; }
+.label-panel .panel-heading .archived-actions { flex-wrap: nowrap; gap: 6px; }
+.tree-node summary .icon-button, .tree-leaf .icon-button { width: 31px; height: 31px; flex: 0 0 31px; }
+.tree-leaf .archived-actions { gap: 4px; }
+
+@media (max-width: 760px) {
+  .settings-tabs { margin-inline: -2px; position: sticky; top: 0; z-index: 4; }
+  .settings-tabs button { padding-inline: 11px; }
+  .settings-stack { gap: 12px; }
+}
+@media (max-width: 760px) {
+  .label-panel .panel-heading { flex-wrap: wrap; }
+  .label-panel .panel-heading > div { flex: 1 1 180px; }
+  /* Schede scorrevoli: la sfumatura a destra fa capire che ce ne sono altre. */
+  .settings-tabs, .patrimonio-tabs { -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+}
+
+/* Confronto: importi allineati al nome della voce, non al centro della riga con le barre. */
+.comparison-table tbody td.number { vertical-align: top; padding-top: 11px; }
+.comparison-table td strong small { color: var(--muted); font-weight: 560; }
+
+/* ---------------------------------------------------------------- Riquadri su colonne indipendenti */
+.board { display: grid; gap: 17px; margin-bottom: 17px; }
+.board-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px; align-items: start; }
+.board-col { display: grid; gap: 17px; min-width: 0; }
+.board .widget > .panel, .board .widget > section { height: auto; margin: 0; }
+.report-board .board-columns { grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); }
+@media (max-width: 900px) {
+  /* Una colonna: le colonne si sciolgono e i riquadri tornano nell'ordine scelto. */
+  .board-columns { display: flex; flex-direction: column; gap: 11px; align-items: stretch; }
+  .board-col { display: contents; }
+  .board { gap: 11px; }
+}
+.board.overview-board { grid-template-columns: minmax(0, 1fr); grid-auto-flow: row; }
+
+/* Andamento del patrimonio: asse più largo, le cifre negative («−38,7k €») non vengono più tagliate. */
+.history-graph { --axis-width: 66px; }
+.history-scale { overflow: visible; }
+.free-amount { color: var(--good); }
+
+/* Calendario: nome della voce su due righe e importo sotto, weekend riconoscibili. */
+.calendar-day { min-height: 96px; }
+.calendar-day.weekend:not(.other) { background: var(--subtle); }
+.calendar-day i { white-space: normal; padding: 2px 4px; line-height: 1.25; }
+.calendar-day i span { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--ink); }
+.calendar-day i em { display: block; font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) { .calendar-day { min-height: 50px; } }
+
+/* Le schede a pulsanti non allargano mai la pagina: se non ci stanno scorrono di lato
+   (le schede del Patrimonio facevano diventare la pagina larga 694 px su un telefono da 412). */
+.segmented { max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.segmented::-webkit-scrollbar { display: none; }
+.segmented button { flex: none; }
+.security-list li > .segmented button, .device-panel .segmented button, .editor .segmented button { flex: 1; }
+
+/* I testi per i lettori di schermo dentro le tabelle scorrevoli si posizionavano rispetto alla pagina
+   e la allargavano (Movimenti 634 px, Analisi 446 px su un telefono da 412): ora restano nel loro contenitore. */
+.table-scroll, .plot-scroll, .history-scroll, .segmented, .settings-tabs { position: relative; }
+.sr-only { top: 0; left: 0; }
+.board { grid-template-columns: minmax(0, 1fr); }
+.board-columns > .widget, .board-col > .widget { min-width: 0; }

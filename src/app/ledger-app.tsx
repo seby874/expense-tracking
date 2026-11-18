@@ -16,7 +16,8 @@ import { sampleLedger } from "../lib/ledger-demo";
 import { BALANCE_HEADER, MOVEMENT_HEADER, backupDocument, balanceRows, csvDocument, downloadFile, movementRows } from "../lib/data-io";
 import { dueDates, dueItems, nextDate, occurrence, occurrenceId, occurrenceMovement, type DueItem } from "../lib/recurring";
 import { BalanceForm, FormError, Modal, MovementForm, type MovementResult } from "./ledger-forms";
-import { Movements, Overview, PanelTitle, Reports, Settings, type SessionInfo } from "./ledger-views";
+import { Movements, Overview, PanelTitle, Reports, type SessionInfo } from "./ledger-views";
+import { Settings, type SettingsTab } from "./settings-page";
 import { Patrimonio, type PatrimonioTab } from "./patrimonio";
 import { CreditEditor, DebtEditor, InvestmentEditor } from "./patrimonio-forms";
 import { installmentsPaid, linkedRecurring, repaymentFor } from "../lib/debts";
@@ -40,6 +41,7 @@ import { archiveActions, archivedYearOf, reopenActions } from "../lib/archive";
 import { backupDue as backupDueNow, makeBackup, markBackupDone, readBackupPrefs } from "../lib/backup/schedule";
 import { folderPermission, savedFolder, writeToFolder } from "../lib/backup/folder";
 import { BrandName, Mark } from "./brand";
+import { MobileNav, type NavItem } from "./mobile-nav";
 
 const SECTIONS = {
   overview: { title: "Panoramica", icon: LayoutDashboard },
@@ -51,6 +53,9 @@ const SECTIONS = {
   settings: { title: "Impostazioni", icon: Settings2 },
 } as const;
 
+/** Sezioni senza selettore del periodo: hanno una navigazione propria o non dipendono dal mese. */
+const NO_PERIOD: ReadonlySet<string> = new Set(["settings", "calendar", "deadlines"]);
+
 /** Sezioni che dipendono da un modulo (spente = nascoste dal menu). */
 const SECTION_MODULES: Partial<Record<keyof typeof SECTIONS, ModuleKey>> = { calendar: "calendar", deadlines: "deadlines" };
 
@@ -61,7 +66,7 @@ const SECTION_COPY = {
   reports: "Scopri come si distribuiscono entrate e spese e confronta i mesi.",
   calendar: "Rate, ricorrenti, accrediti, vincoli e scadenze del mese.",
   deadlines: "Revisione, documenti, garanzie e contratti: non dimenticare nulla.",
-  settings: "Categorie, sicurezza della sessione e copia dei tuoi dati.",
+  settings: "Categorie, aspetto, funzioni, backup e sicurezza.",
 };
 
 // Il periodo scelto resta salvato solo per la sessione della scheda:
@@ -162,6 +167,7 @@ type CommitOptions = { closeForm?: boolean; jump?: boolean; undoable?: boolean; 
 
 export function LedgerApp({ session }: { session: SessionInfo }) {
   const [section, setSection] = useState<Section>(LOOK.start === "quick" ? "overview" : LOOK.start);
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [hidden, setHidden] = useState(LOOK.discreet);
   const [trash, setTrash] = useState<TrashItem[]>([]);
   // Documenti letti da Firestore e voci non valide: servono al controllo di salute e all'archivio.
@@ -559,7 +565,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
     if (writing.current || !input.length) return false;
     const lockedYear = options.allowArchived ? null : archivedYearOf(ledger, input);
     if (lockedYear !== null) {
-      const text = `Il ${lockedYear} è archiviato (sola lettura): riaprilo in Impostazioni → Archivio per modificarlo.`;
+      const text = `Il ${lockedYear} è archiviato (sola lettura): riaprilo in Impostazioni → Dati e backup → Archivio annuale per modificarlo.`;
       if (form) setFormError(text); else setToast(text);
       return false;
     }
@@ -819,6 +825,9 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   function exportBackup() { void runBackup(true); }
 
   const sectionTitle = SECTIONS[section].title;
+  const navItems: NavItem<Section>[] = (Object.keys(SECTIONS) as Section[])
+    .filter((key) => !SECTION_MODULES[key] || moduleOn(ledger.settings, SECTION_MODULES[key]!))
+    .map((key) => ({ key, title: SECTIONS[key].title, icon: SECTIONS[key].icon }));
   // Titolo della scheda del browser con la sezione aperta.
   useEffect(() => { document.title = `${sectionTitle} · ${APP_NAME}`; }, [sectionTitle]);
   const presetDebt = form?.type === "movement" && form.preset?.type === "repayment" ? ledger.accounts.find((account) => account.id === (form.preset as { debtId: string }).debtId) : undefined;
@@ -866,7 +875,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
     else if (check.action === "fixed") { setAnalysisTab("fixed"); navigate("reports"); }
     else if (check.action === "deadlines") navigate("deadlines");
     else if (check.action === "movements") navigate("movements");
-    else navigate("settings");
+    else { setSettingsTab(check.action === "params" || check.action === "settings" ? "features" : "data"); navigate("settings"); }
   }
   const commitProps = { busy, error: formError, onCommit: (actions: Mutation[], message: string) => { void commit(actions, message); } };
   const extras = {
@@ -883,7 +892,8 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
         <span>{item.value.name}</span><small>{item.value.amount ? money(item.value.amount) : "importo…"}</small></button>)}</div></section> } : {}),
   };
   const reminders = !demo && status === "ready" && <Reminders ledger={ledger} today={today} onQuick={() => quick("expense")}
-    onBalance={(account, balanceMonth) => editBalance(account, balanceMonth)} onBackup={exportBackup} />;
+    onBalance={(account, balanceMonth) => editBalance(account, balanceMonth)} onBackup={exportBackup}
+    backupScheduled={readBackupPrefs().frequency !== "off"} />;
 
   return <div className="app-shell">
     <a className="skip-link" href="#contenuto">Vai al contenuto</a>
@@ -893,15 +903,11 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       </button>
       <div className="nav-label">IL TUO SPAZIO</div>
       <nav className="main-nav" aria-label="Menu principale">
-        {(Object.keys(SECTIONS) as Section[]).filter((key) => !SECTION_MODULES[key] || moduleOn(ledger.settings, SECTION_MODULES[key]!)).map((key) => {
-          const { icon: Icon, title } = SECTIONS[key];
-          return <button className="nav-button" type="button" key={key} aria-current={section === key ? "page" : undefined}
-            onClick={() => navigate(key)} aria-label={title}>
-            <Icon size={19} strokeWidth={1.8} />
-            {key === "accounts" ? <><span className="nav-wide">{title}</span><span className="nav-narrow">Conti</span></> : <span>{title}</span>}
-            {section === key && <i />}
-          </button>;
-        })}
+        {navItems.map(({ key, title, icon: Icon }) => <button className="nav-button" type="button" key={key} aria-current={section === key ? "page" : undefined}
+          onClick={() => navigate(key)}>
+          <Icon size={19} strokeWidth={1.8} /><span>{title}</span>
+          {section === key && <i />}
+        </button>)}
       </nav>
       <div className="sidebar-bottom">
         <div className="sidebar-private"><span className="sidebar-lock"><CloudCheck size={16} /></span>
@@ -913,12 +919,13 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
 
     <div className="workspace">
       <header className="topbar">
+        <button type="button" className="topbar-brand" onClick={() => navigate("overview")} aria-label={`${APP_NAME}, panoramica`}><Mark /><BrandName className="topbar-name" /></button>
         <div className="breadcrumbs"><span>{APP_NAME}</span><ChevronRight size={15} /><strong>{sectionTitle}</strong></div>
         <div className="topbar-end">
           <span className={`privacy-badge${!demo && !online ? " is-offline" : ""}`} role="status">
-            {demo ? <><i />Dati di esempio</>
-              : !online ? <><CloudOff size={13} />Nessuna connessione</>
-              : <><i />Archivio sincronizzato</>}
+            {demo ? <><i /><span className="badge-text">Dati di esempio</span></>
+              : !online ? <><CloudOff size={13} /><span className="badge-text">Nessuna connessione</span></>
+              : <><i /><span className="badge-text">Archivio sincronizzato</span></>}
           </span>
           <button type="button" className="icon-button quiet" aria-pressed={hidden} aria-label={hidden ? "Mostra gli importi" : "Nascondi gli importi"}
             title={hidden ? "Mostra gli importi" : "Nascondi gli importi (modalità discreta)"} onClick={() => setHidden((value) => !value)}>
@@ -932,16 +939,16 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
             <h1>{sectionTitle}</h1><p>{SECTION_COPY[section]}</p>
           </div>
           <div className="page-actions">
-            {section !== "settings" && <PeriodPicker {...{ period, years, onChange: setPeriod }} />}
-            <button type="button" className="button primary new-button" onClick={newMovement} disabled={!canEdit}><Plus size={19} /> Nuovo movimento</button>
+            {!NO_PERIOD.has(section) && <PeriodPicker {...{ period, years, onChange: setPeriod }} />}
+            {section !== "settings" && <button type="button" className="button primary new-button" onClick={newMovement} disabled={!canEdit}><Plus size={19} /> Nuovo movimento</button>}
           </div>
         </div>
 
         {demo && <div className="notice example-notice"><FlaskConical size={19} /><div><strong>Stai usando dati di esempio</strong>
           <span>Le modifiche di prova si azzerano quando esci.</span></div><button className="button secondary" type="button" onClick={toggleDemo}>Esci dalla prova</button></div>}
-        {!demo && backupDue && <div className="notice reload-notice"><DatabaseBackup size={19} /><div><strong>È ora del backup</strong>
-          <span>Crea il file di backup dei tuoi dati (cambia frequenza e cartella in Impostazioni → Backup).</span></div>
-          <button type="button" className="button secondary" disabled={busy} onClick={exportBackup}>Fai il backup</button>
+        {!demo && backupDue && section === "overview" && <div className="notice reload-notice backup-notice"><DatabaseBackup size={19} /><div><strong>È ora del backup</strong>
+          <span className="notice-detail">Frequenza e cartella si cambiano in Impostazioni → Dati e backup.</span></div>
+          <button type="button" className="button secondary small" disabled={busy} onClick={exportBackup}>Fai il backup</button>
           <button type="button" className="text-button" onClick={() => setBackupDue(false)}>Più tardi</button></div>}
         {!demo && status === "loading" && <p className="loading-status" role="status">Apertura dell’archivio…</p>}
         {!demo && status === "error" && <div className="notice error-notice" role="alert"><CircleAlert size={19} /><div><strong>Archivio non disponibile</strong><span>{loadError}</span></div>
@@ -949,7 +956,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
 
         {section === "overview" && <Overview {...sharedView} onEdit={editMovement} onNew={newMovement}
           onView={navigate} onBalance={(account) => editBalance(account)} demoAction={!demo && !ledger.movements.length ? demoButton : undefined}
-          due={canEdit && <>{!demo && healthVisible && moduleOn(ledger.settings, "health") && <HealthPanel checks={health} compact onAction={healthAction}
+          due={canEdit && <>{!demo && healthVisible && moduleOn(ledger.settings, "health") && <HealthPanel checks={backupDue ? health.filter((check) => check.id !== "backup") : health} compact onAction={healthAction}
             onSeen={() => { markHealthSeen(today); setHealthVisible(false); }} onSnooze={() => { snoozeHealth(today); setHealthVisible(false); }} />}
             {!demo && <OverviewAlerts ledger={ledger} today={today} onOpenDeadlines={() => navigate("deadlines")}
             onOpenReport={(reportFor) => { setReportYear(reportFor); setAnalysisTab("reports"); navigate("reports"); }} />}{reminders}<DuePanel items={due} today={today} busy={busy}
@@ -971,7 +978,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
           projection={moduleOn(ledger.settings, "projection") ? <ProjectionTab ledger={ledger} today={today} busy={busy} onCommit={settingsCommit}
             settingsAction={(change) => settingsAction(ledger, change)} /> : undefined}
           fund={moduleOn(ledger.settings, "fund") ? <FundTab ledger={ledger} today={today} busy={busy} onCommit={settingsCommit}
-            onMove={fundMove} onInterest={depositInterest} onSettings={() => navigate("settings")} /> : undefined} year={year} month={month} monthChange={setPeriod}
+            onMove={fundMove} onInterest={depositInterest} onSettings={() => { setSettingsTab("features"); navigate("settings"); }} /> : undefined} year={year} month={month} monthChange={setPeriod}
           tab={patrimonioTab} onTab={setPatrimonioTab} onAccount={editAccount} onBalance={(account) => editBalance(account)} onAdjust={adjust} onGoal={editGoal} today={today}
           onInvestment={editInvestment} onDebt={editDebt} onRepay={repay} onContribute={contribute} onCredit={editCredit} onCreditMove={creditMove} />}
         {section === "reports" && <AnalysisTabs ledger={ledger} tab={analysisTab} onTab={setAnalysisTab} views={{
@@ -985,18 +992,23 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
         {section === "settings" && <Settings ledger={ledger} onLabel={editLabel} onExport={() => exportMovements(ledger.movements, true)}
           onBalancesExport={exportBalances} onBackup={exportBackup} onRestore={() => open({ type: "restore" })} onDemo={toggleDemo} session={session}
           onTemplate={editTemplate} trash={trash} demo={demo} onRestoreTrash={restoreTrash} onPurgeTrash={purgeTrash}
-          onStyle={editStyle} onReset={() => open({ type: "reset" })}
-          extra={<>{!demo && moduleOn(ledger.settings, "health") && <HealthPanel checks={health} onAction={healthAction} />}<ModulesPanel ledger={ledger} busy={busy} demo={demo} onCommit={settingsCommit} />
-            <PeoplePanel ledger={ledger} today={today} busy={busy} onCommit={settingsCommit} />
-            {moduleOn(ledger.settings, "fund") && <FundSettingsPanel ledger={ledger} busy={busy} onCommit={settingsCommit} settingsAction={(change) => settingsAction(ledger, change)} />}
-            <ParamsPanel ledger={ledger} today={today} busy={busy} onCommit={settingsCommit} />
-            <DeductionMapPanel ledger={ledger} busy={busy} onCommit={settingsCommit} />
-            <BackupPanel busy={busy} demo={demo} onBackupNow={exportBackup} /><DossierPanel ledger={ledger} today={today} /><ArchivePanel ledger={ledger} today={today} documents={storeInfo.documents} busy={busy} demo={demo}
-            onArchive={archiveYear} onReopen={reopenYear} /></>}
-          busy={busy} onCommit={(actions, message) => { void commit(actions, message, { closeForm: false }); }} />}
+          onStyle={editStyle} onReset={() => open({ type: "reset" })} tab={settingsTab} onTab={setSettingsTab}
+          panels={{
+            health: !demo && moduleOn(ledger.settings, "health") ? <HealthPanel checks={health} onAction={healthAction} /> : undefined,
+            modules: <ModulesPanel ledger={ledger} busy={busy} demo={demo} onCommit={settingsCommit} />,
+            people: <PeoplePanel ledger={ledger} today={today} busy={busy} onCommit={settingsCommit} />,
+            fund: moduleOn(ledger.settings, "fund") ? <FundSettingsPanel ledger={ledger} busy={busy} onCommit={settingsCommit} settingsAction={(change) => settingsAction(ledger, change)} /> : undefined,
+            params: <ParamsPanel ledger={ledger} today={today} busy={busy} onCommit={settingsCommit} />,
+            deductions: <DeductionMapPanel ledger={ledger} busy={busy} onCommit={settingsCommit} />,
+            backup: <BackupPanel busy={busy} demo={demo} onBackupNow={exportBackup} />,
+            dossier: <DossierPanel ledger={ledger} today={today} />,
+            archive: <ArchivePanel ledger={ledger} today={today} documents={storeInfo.documents} busy={busy} demo={demo} onArchive={archiveYear} onReopen={reopenYear} />,
+          }}
+          busy={busy} onCommit={settingsCommit} />}
         <footer className="workspace-footer"><span>{APP_NAME} · versione {APP_VERSION}</span><span>{period.length === 4 ? "Anno " + period : monthLabel(period)}</span></footer>
       </main>
     </div>
+    <MobileNav items={navItems} current={section} onNavigate={navigate} />
     {canEdit && !form && <button type="button" className="fab" aria-label="Spesa veloce" title="Spesa veloce" onClick={() => quick("expense")}><Plus size={26} /></button>}
     {toast && <div className="toast" role="status"><CircleCheck size={18} /><span>{toast.text}</span>
       {toast.undo && <button type="button" className="toast-action" disabled={busy} onClick={() => {
