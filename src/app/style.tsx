@@ -18,6 +18,15 @@ export const ICONS: Record<string, LucideIcon> = {
   "hand-coins": HandCoins, target: Target, sparkles: Sparkles,
 };
 
+/** Emoji a scelta per categorie e conti (chiave salvata nei dati: "e-…", accettata anche dalle versioni precedenti). */
+export const EMOJIS: Record<string, string> = {
+  "e-cart": "🛒", "e-pizza": "🍕", "e-coffee": "☕", "e-beer": "🍺", "e-car": "🚗", "e-fuel": "⛽", "e-bus": "🚌", "e-train": "🚆",
+  "e-plane": "✈️", "e-house": "🏠", "e-bulb": "💡", "e-phone": "📱", "e-tv": "📺", "e-pill": "💊", "e-health": "🩺", "e-gym": "🏋️",
+  "e-game": "🎮", "e-movie": "🎬", "e-music": "🎵", "e-book": "📚", "e-school": "🎓", "e-shirt": "👕", "e-bag": "🛍️", "e-gift": "🎁",
+  "e-paw": "🐾", "e-baby": "👶", "e-family": "👨‍👩‍👧", "e-tools": "🔧", "e-bank": "🏦", "e-money": "💶", "e-card": "💳", "e-piggy": "🐷",
+  "e-chart": "📈", "e-target": "🎯", "e-sparkles": "✨", "e-heart": "❤️", "e-sun": "☀️", "e-beach": "🏖️", "e-food": "🍝", "e-party": "🎉",
+};
+
 export const TONE_NAMES: Record<Tone, string> = {
   green: "Verde", teal: "Petrolio", blue: "Blu", indigo: "Indaco", purple: "Viola", pink: "Rosa", red: "Rosso",
   orange: "Arancio", amber: "Ambra", olive: "Oliva", slate: "Ardesia",
@@ -33,6 +42,7 @@ export function toneClass(color: string | undefined) {
 }
 
 export function StyleIcon({ icon, size = 17, fallback }: { icon?: string; size?: number; fallback?: ReactNode }) {
+  if (icon && EMOJIS[icon]) return <span className="emoji-icon" style={{ fontSize: Math.round(size * 0.95) }} aria-hidden="true">{EMOJIS[icon]}</span>;
   const Icon = icon ? ICONS[icon] : undefined;
   return Icon ? <Icon size={size} /> : <>{fallback ?? null}</>;
 }
@@ -58,10 +68,12 @@ export function StylePicker({ color, icon, onChange }: {
           onClick={() => onChange({ color, icon: key })}><Icon size={17} /></button>)}
       </div>
     </fieldset>
+    <fieldset>
+      <legend>Emoji</legend>
+      <div className="icon-grid">
+        {Object.entries(EMOJIS).map(([key, emoji]) => <button type="button" key={key} className="icon-choice emoji-choice" aria-pressed={icon === key} aria-label={`Emoji ${emoji}`}
+          onClick={() => onChange({ color, icon: key })}>{emoji}</button>)}
+      </div>
+    </fieldset>
   </div>;
 }
-
-/** Colore principale dell'app (per dispositivo). */
-export const ACCENTS = [
-  ["green", "Verde"], ["blue", "Blu"], ["indigo", "Indaco"], ["purple", "Viola"], ["pink", "Rosa"], ["orange", "Arancio"], ["slate", "Ardesia"],
-] as const;

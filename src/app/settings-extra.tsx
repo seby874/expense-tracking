@@ -1,21 +1,19 @@
 import { useEffect, useState, type ChangeEvent, type ReactNode } from "react";
 import {
-  AppWindow, Monitor, Moon, Sun, ArrowDown, ArrowUp, CalendarRange, CircleAlert, DatabaseBackup, EyeOff, FileUp, Keyboard, LayoutDashboard, Palette, Pencil, Plus,
-  RotateCcw, Rows3, Star, Tag, Trash2, TriangleAlert, Type, Wind,
+  ArrowDown, ArrowUp, CalendarRange, DatabaseBackup, FileUp, Palette, Pencil, Plus,
+  RotateCcw, Star, Tag, Trash2, TriangleAlert,
 } from "lucide-react";
 import {
   NO_VERSION, ENTRY_TYPES, allTags, hasTag, money, monthLabel, sameName, shortDate,
   todayInRome,
   type Account, type Label, type Ledger, type LedgerRecord, type Mutation, type Template,
 } from "../lib/ledger";
-import { OVERVIEW_WIDGETS, readWidgets, saveWidgets, type WidgetPref } from "../lib/preferences";
-import { ACCENTS, StyleIcon, StylePicker, toneClass } from "./style";
+import { StyleIcon, StylePicker, toneClass } from "./style";
 import { AccountGlyph } from "./ledger-views";
 import type { TrashItem } from "../lib/ledger-sync";
 import { planRestore, type RestorePlan } from "../lib/data-io";
 import { entryText, readZip } from "../lib/backup/zip";
 import { decryptBackup, isEncrypted } from "../lib/backup/crypto";
-import { readLook, readTheme, saveLook, saveTheme, type Density, type LookPrefs, type StartScreen, type TextSize, type ThemeMode } from "../lib/preferences";
 import { FormError } from "./ledger-forms";
 import { cleanTag } from "./tags";
 
@@ -120,110 +118,6 @@ export function TrashPanel({ ledger, trash, busy, demo, onRestore, onPurge }: {
             <button type="button" className="button danger small" disabled={busy} onClick={() => { setConfirm(false); onPurge(items); }}>Svuota</button></>
           : <button type="button" className="text-button danger-text" disabled={busy} onClick={() => setConfirm(true)}>Svuota il cestino</button>}</div>
       </>}
-  </section>;
-}
-
-// ---------------------------------------------------------------- Personalizzazione
-
-const START_SCREENS: [StartScreen, string][] = [["overview", "Panoramica"], ["movements", "Movimenti"], ["accounts", "Patrimonio"], ["reports", "Analisi"], ["quick", "Inserimento veloce"]];
-
-const THEMES: [ThemeMode, string, typeof Sun][] = [["auto", "Automatico", Monitor], ["light", "Chiaro", Sun], ["dark", "Scuro", Moon]];
-
-export function PersonalPanel() {
-  const [look, setLook] = useState<LookPrefs>(readLook);
-  const [theme, setTheme] = useState<ThemeMode>(readTheme);
-  const update = (change: Partial<LookPrefs>) => { const next = { ...look, ...change }; setLook(next); saveLook(next); };
-  return <section className="panel device-panel">
-    <PanelHead icon={<Palette size={18} />} title="Aspetto e dispositivo" subtitle="Queste scelte valgono solo per questo browser." />
-    <ul className="security-list">
-      <li>
-        <span className="security-icon">{theme === "dark" ? <Moon size={18} /> : theme === "light" ? <Sun size={18} /> : <Monitor size={18} />}</span>
-        <div><strong>Tema</strong><p>{theme === "auto" ? "Segue l’impostazione chiaro/scuro del sistema." : theme === "dark" ? "Sempre scuro." : "Sempre chiaro."}</p></div>
-        <div className="segmented" role="group" aria-label="Tema">
-          {THEMES.map(([value, title, Icon]) => <button type="button" key={value} aria-pressed={theme === value}
-            onClick={() => { setTheme(value); saveTheme(value); }}><Icon size={15} />{title}</button>)}
-        </div>
-      </li>
-      <li>
-        <span className="security-icon"><AppWindow size={18} /></span>
-        <div><strong>Schermata d’apertura</strong><p>Cosa vedi appena apri l’app.</p></div>
-        <label><span className="sr-only">Schermata d’apertura</span>
-          <select value={look.start} onChange={(event) => update({ start: event.target.value as StartScreen })}>
-            {START_SCREENS.map(([value, title]) => <option key={value} value={value}>{title}</option>)}
-          </select></label>
-      </li>
-      <li>
-        <span className="security-icon"><EyeOff size={18} /></span>
-        <div><strong>Modalità discreta all’apertura</strong><p>Gli importi restano nascosti (••• €) finché non premi l’occhio in alto. Comoda in pubblico.</p></div>
-        <label className="switch"><input type="checkbox" checked={look.discreet} onChange={(event) => update({ discreet: event.target.checked })} />
-          <span aria-hidden="true" /><span className="sr-only">Modalità discreta all’apertura</span></label>
-      </li>
-      <li>
-        <span className="security-icon"><Rows3 size={18} /></span>
-        <div><strong>Densità</strong><p>{look.density === "compact" ? "Più informazioni nello stesso spazio." : "Spazi ampi, più leggibile."}</p></div>
-        <div className="segmented" role="group" aria-label="Densità">
-          {([["comfortable", "Comoda"], ["compact", "Compatta"]] as [Density, string][]).map(([value, title]) =>
-            <button type="button" key={value} aria-pressed={look.density === value} onClick={() => update({ density: value })}>{title}</button>)}
-        </div>
-      </li>
-      <li>
-        <span className="security-icon"><Type size={18} /></span>
-        <div><strong>Dimensione del testo</strong><p>{look.text === "large" ? "Testo e controlli più grandi." : "Dimensione standard."}</p></div>
-        <div className="segmented" role="group" aria-label="Dimensione del testo">
-          {([["normal", "Normale"], ["large", "Grande"]] as [TextSize, string][]).map(([value, title]) =>
-            <button type="button" key={value} aria-pressed={look.text === value} onClick={() => update({ text: value })}>{title}</button>)}
-        </div>
-      </li>
-      <li>
-        <span className="security-icon"><Palette size={18} /></span>
-        <div><strong>Colore principale</strong><p>Pulsanti, evidenziazioni e collegamenti.</p></div>
-        <div className="swatches" role="group" aria-label="Colore principale">
-          {ACCENTS.map(([key, title]) => <button type="button" key={key} className={`swatch accent-${key}`} aria-pressed={look.accent === key}
-            aria-label={title} title={title} onClick={() => update({ accent: key })} />)}
-        </div>
-      </li>
-      <li>
-        <span className="security-icon"><CircleAlert size={18} /></span>
-        <div><strong>Promemoria</strong><p>In Panoramica: giorni senza movimenti, saldi di fine mese da registrare e, se il backup automatico è spento, backup da scaricare.</p></div>
-        <label className="switch"><input type="checkbox" checked={look.reminders} onChange={(event) => update({ reminders: event.target.checked })} />
-          <span aria-hidden="true" /><span className="sr-only">Promemoria</span></label>
-      </li>
-      <li>
-        <span className="security-icon"><Wind size={18} /></span>
-        <div><strong>Riduci le animazioni</strong><p>Niente transizioni ed effetti di movimento: l’app risponde più asciutta, utile su telefoni lenti.</p></div>
-        <label className="switch"><input type="checkbox" checked={look.calm} onChange={(event) => update({ calm: event.target.checked })} />
-          <span aria-hidden="true" /><span className="sr-only">Riduci le animazioni</span></label>
-      </li>
-      <li className="keyboard-only">
-        <span className="security-icon"><Keyboard size={18} /></span>
-        <div><strong>Scorciatoie da tastiera</strong>
-          <p><kbd>N</kbd> nuovo movimento · <kbd>V</kbd> spesa veloce · <kbd>/</kbd> cerca · <kbd>1</kbd>–<kbd>5</kbd> sezioni · <kbd>D</kbd> modalità discreta · <kbd>Esc</kbd> chiude</p></div>
-      </li>
-    </ul>
-  </section>;
-}
-
-// ---------------------------------------------------------------- Panoramica a scelta
-
-export function OverviewPanel() {
-  const [list, setList] = useState<WidgetPref[]>(readWidgets);
-  const store = (next: WidgetPref[]) => { setList(next); saveWidgets(next); };
-  const move = (index: number, step: -1 | 1) => {
-    const next = [...list];
-    const [item] = next.splice(index, 1);
-    next.splice(index + step, 0, item);
-    store(next);
-  };
-  return <section className="panel settings-extra">
-    <PanelHead icon={<LayoutDashboard size={18} />} title="Riquadri della Panoramica" subtitle="Scegli quali riquadri vedere e in che ordine (solo su questo dispositivo)." />
-    <ul className="rule-list widget-list">{list.map((item, index) => <li key={item.key}>
-      <label className="check-row compact"><input type="checkbox" checked={item.on} onChange={(event) => store(list.map((entry) => entry.key === item.key ? { ...entry, on: event.target.checked } : entry))} />
-        <span><strong>{OVERVIEW_WIDGETS[item.key]}</strong></span></label>
-      <span className="archived-actions">
-        <button type="button" className="icon-button quiet" aria-label={`Sposta su ${OVERVIEW_WIDGETS[item.key]}`} disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={15} /></button>
-        <button type="button" className="icon-button quiet" aria-label={`Sposta giù ${OVERVIEW_WIDGETS[item.key]}`} disabled={index === list.length - 1} onClick={() => move(index, 1)}><ArrowDown size={15} /></button>
-      </span>
-    </li>)}</ul>
   </section>;
 }
 

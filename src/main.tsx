@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { auth } from "./lib/firebase";
-import { applyLook, applyTheme, readLook, readTheme } from "./lib/preferences";
+import { startAppearance } from "./lib/theme-runtime";
 import { removeOfflineShell } from "./lib/offline-shell";
 import { APP_NAME } from "./lib/config";
 import { isIdleExpired, readIdleMinutes, saveIdleMinutes } from "./lib/session";
@@ -16,6 +16,7 @@ import { IdleWarning, expiredMessage, useIdleLogout } from "./app/session-guard"
 import "@fontsource-variable/inter";
 import "./app/globals.css";
 import "./app/layout-2-1.css";
+import "./app/theme.css";
 
 const ACTION_MODES: ActionMode[] = ["resetPassword", "verifyEmail", "recoverEmail"];
 
@@ -31,8 +32,7 @@ function readEmailAction() {
 
 const initialAction = readEmailAction();
 
-applyTheme(readTheme());
-applyLook(readLook());
+startAppearance();
 removeOfflineShell();
 
 function App() {

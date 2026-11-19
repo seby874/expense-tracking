@@ -42,6 +42,9 @@ import { backupDue as backupDueNow, makeBackup, markBackupDone, readBackupPrefs 
 import { folderPermission, savedFolder, writeToFolder } from "../lib/backup/folder";
 import { BrandName, Mark } from "./brand";
 import { MobileNav, type NavItem } from "./mobile-nav";
+import { useAppearance } from "./appearance/controls";
+import { appearanceSaved, getAppearance, receiveAppearance, setAppearanceSync } from "../lib/theme-runtime";
+import { CONFLICT_MESSAGE, EXISTS_MESSAGE } from "../lib/ledger-sync";
 
 const SECTIONS = {
   overview: { title: "Panoramica", icon: LayoutDashboard },
@@ -159,13 +162,15 @@ function PeriodPicker({ period, years, onChange }: { period: string; years: numb
   </div>;
 }
 
-const LOOK = readLook();
 const DAY_MS = 86_400_000;
 
 type Toast = { text: string; undo?: Mutation[] };
 type CommitOptions = { closeForm?: boolean; jump?: boolean; undoable?: boolean; noUndo?: boolean; allowArchived?: boolean };
 
 export function LedgerApp({ session }: { session: SessionInfo }) {
+  // Schermata d'apertura e modalità discreta: dall'aspetto sincronizzato (letto quando l'app si apre).
+  const [LOOK] = useState(readLook);
+  const [appearance] = useAppearance();
   const [section, setSection] = useState<Section>(LOOK.start === "quick" ? "overview" : LOOK.start);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>("general");
   const [hidden, setHidden] = useState(LOOK.discreet);
@@ -240,6 +245,57 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
       try { sessionStorage.setItem(PERIOD_KEY, next); } catch {}
     }
   }
+
+  // Aspetto sincronizzato: arriva con l'archivio e si salva da solo quando cambia (non con i dati di esempio).
+  // Il salvataggio legge sempre l'aspetto più recente; se non riesce resta in sospeso e si riprova,
+  // e intanto l'aspetto online non sovrascrive la modifica (vedi lib/theme-runtime.ts).
+  const lookRecord = currentRecords.find((record) => record.kind === "setting" && record.id === "look") ?? null;
+  const lookRef = useRef(lookRecord);
+  lookRef.current = lookRecord;
+  const lookRetry = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (status !== "ready" || demo) { setAppearanceSync(null); return undefined; }
+    let active = true;
+    const later = (ms: number) => {
+      if (lookRetry.current) clearTimeout(lookRetry.current);
+      lookRetry.current = setTimeout(() => { lookRetry.current = null; void save(); }, ms);
+    };
+    async function save() {
+      if (!active) return;
+      if (writing.current) { later(1500); return; }
+      const record = { kind: "setting", id: "look", version: lookRef.current?.version ?? null, value: getAppearance() } as LedgerRecord;
+      const actions: Mutation[] = [{ op: "save", record }];
+      writing.current = true;
+      try {
+        const saved = await writeLedger(actions);
+        if (!active) return;
+        setRecords((previous) => applyActions(previous, actions, saved));
+        appearanceSaved();
+      } catch (error) {
+        if (!active) return;
+        // Cambiato su un altro dispositivo: si rilegge la versione online e si risalva la modifica di qui.
+        // Senza connessione si riprova più tardi.
+        const conflict = error instanceof Error && (error.message === CONFLICT_MESSAGE || error.message === EXISTS_MESSAGE);
+        writing.current = false;
+        if (conflict) void load();
+        later(conflict ? 2000 : 15_000);
+      } finally {
+        writing.current = false;
+      }
+    }
+    // Prima il salvataggio, poi la lettura: così il ripristino e la prima pubblicazione vengono scritti davvero.
+    setAppearanceSync(() => void save());
+    receiveAppearance(lookRef.current?.value ?? null);
+    return () => {
+      active = false;
+      if (lookRetry.current) clearTimeout(lookRetry.current);
+      lookRetry.current = null;
+      setAppearanceSync(null);
+    };
+  }, [status, demo]);
+  useEffect(() => {
+    if (status === "ready" && !demo) receiveAppearance(lookRef.current?.value ?? null);
+  }, [lookRecord?.version]);
 
   const load = useCallback(async () => {
     if (writing.current) return;
@@ -825,11 +881,17 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   function exportBackup() { void runBackup(true); }
 
   const sectionTitle = SECTIONS[section].title;
-  const navItems: NavItem<Section>[] = (Object.keys(SECTIONS) as Section[])
+  const navItems: NavItem<Section>[] = appearance.layout.order
     .filter((key) => !SECTION_MODULES[key] || moduleOn(ledger.settings, SECTION_MODULES[key]!))
+    .filter((key) => !appearance.layout.hidden.includes(key) || key === section)
     .map((key) => ({ key, title: SECTIONS[key].title, icon: SECTIONS[key].icon }));
+  const barItems = [
+    ...navItems.filter((item) => appearance.layout.bar.includes(item.key)),
+    ...navItems.filter((item) => !appearance.layout.bar.includes(item.key)),
+  ];
   // Titolo della scheda del browser con la sezione aperta.
-  useEffect(() => { document.title = `${sectionTitle} · ${APP_NAME}`; }, [sectionTitle]);
+  const brandName = appearance.brand.name;
+  useEffect(() => { document.title = `${sectionTitle} · ${brandName}`; }, [sectionTitle, brandName]);
   const presetDebt = form?.type === "movement" && form.preset?.type === "repayment" ? ledger.accounts.find((account) => account.id === (form.preset as { debtId: string }).debtId) : undefined;
   const flexiblePreset = presetDebt?.value.debt?.kind === "flexible";
   const presetTransfer = form?.type === "movement" && form.preset?.type === "transfer" ? form.preset : null;
@@ -898,7 +960,7 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
   return <div className="app-shell">
     <a className="skip-link" href="#contenuto">Vai al contenuto</a>
     <aside className="sidebar">
-      <button type="button" className="brand" onClick={() => navigate("overview")} aria-label={`${APP_NAME}, panoramica`}>
+      <button type="button" className="brand" onClick={() => navigate("overview")} aria-label={`${brandName}, panoramica`}>
         <Mark /><BrandName />
       </button>
       <div className="nav-label">IL TUO SPAZIO</div>
@@ -913,14 +975,14 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
         <div className="sidebar-private"><span className="sidebar-lock"><CloudCheck size={16} /></span>
           <div><strong>Archivio cloud</strong><small title={session.email}>{session.email || "Conti in euro · EUR"}</small></div>
         </div>
-        <button type="button" className="sidebar-logout" onClick={session.onLogout}><LogOut size={17} /> Esci</button>
+        <button type="button" className="sidebar-logout" onClick={session.onLogout} aria-label="Esci"><LogOut size={17} /> <span>Esci</span></button>
       </div>
     </aside>
 
     <div className="workspace">
       <header className="topbar">
-        <button type="button" className="topbar-brand" onClick={() => navigate("overview")} aria-label={`${APP_NAME}, panoramica`}><Mark /><BrandName className="topbar-name" /></button>
-        <div className="breadcrumbs"><span>{APP_NAME}</span><ChevronRight size={15} /><strong>{sectionTitle}</strong></div>
+        <button type="button" className="topbar-brand" onClick={() => navigate("overview")} aria-label={`${brandName}, panoramica`}><Mark /><BrandName className="topbar-name" /></button>
+        <div className="breadcrumbs"><span>{brandName}</span><ChevronRight size={15} /><strong>{sectionTitle}</strong></div>
         <div className="topbar-end">
           <span className={`privacy-badge${!demo && !online ? " is-offline" : ""}`} role="status">
             {demo ? <><i /><span className="badge-text">Dati di esempio</span></>
@@ -1005,10 +1067,10 @@ export function LedgerApp({ session }: { session: SessionInfo }) {
             archive: <ArchivePanel ledger={ledger} today={today} documents={storeInfo.documents} busy={busy} demo={demo} onArchive={archiveYear} onReopen={reopenYear} />,
           }}
           busy={busy} onCommit={settingsCommit} />}
-        <footer className="workspace-footer"><span>{APP_NAME} · versione {APP_VERSION}</span><span>{period.length === 4 ? "Anno " + period : monthLabel(period)}</span></footer>
+        <footer className="workspace-footer"><span>{brandName} · versione {APP_VERSION}</span><span>{period.length === 4 ? "Anno " + period : monthLabel(period)}</span></footer>
       </main>
     </div>
-    <MobileNav items={navItems} current={section} onNavigate={navigate} />
+    <MobileNav items={barItems} current={section} onNavigate={navigate} />
     {canEdit && !form && <button type="button" className="fab" aria-label="Spesa veloce" title="Spesa veloce" onClick={() => quick("expense")}><Plus size={26} /></button>}
     {toast && <div className="toast" role="status"><CircleCheck size={18} /><span>{toast.text}</span>
       {toast.undo && <button type="button" className="toast-action" disabled={busy} onClick={() => {

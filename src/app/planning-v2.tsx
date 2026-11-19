@@ -19,6 +19,7 @@ import { debtStatus } from "../lib/debts";
 import type { HealthCheck } from "../lib/health";
 import { Empty, PanelTitle } from "./ledger-views";
 import { PanelHead } from "./settings-extra";
+import { getAppearance } from "../lib/theme-runtime";
 
 type Commit = (actions: Mutation[], message: string) => void;
 
@@ -180,7 +181,10 @@ export function CalendarView({ ledger, today }: { ledger: Ledger; today: string 
   const [list, setList] = useState(false);
   const events = useMemo(() => calendarEvents(ledger, month, today), [ledger, month, today]);
   const first = new Date(`${month}-01T12:00:00Z`);
-  const offset = (first.getUTCDay() + 6) % 7;
+  // Primo giorno della settimana scelto in Impostazioni → Aspetto → Numeri e date.
+  const sunday = getAppearance().numbers.weekStart === "sunday";
+  const weekdays = sunday ? ["Dom", ...WEEKDAYS.slice(0, 6)] : WEEKDAYS;
+  const offset = sunday ? first.getUTCDay() : (first.getUTCDay() + 6) % 7;
   const days = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
   const cells = Array.from({ length: Math.ceil((offset + days) / 7) * 7 }, (_, index) => index - offset + 1);
   const totalOut = events.filter((event) => event.tone === "out").reduce((sum, event) => sum + (event.amount ?? 0), 0);
@@ -199,11 +203,11 @@ export function CalendarView({ ledger, today }: { ledger: Ledger; today: string 
         {event.amount !== null && <small className={event.tone === "in" ? "status-ok" : event.tone === "out" ? "status-warn" : undefined}>{event.tone === "in" ? "+" : event.tone === "out" ? "−" : ""}{money(event.amount)}</small>}</div></li>)}</ul>
       : <Empty icon={<CalendarDays size={22} />} title="Niente in programma">Nessuna scadenza in questo mese.</Empty>)
     : <div className="calendar-grid">
-      {WEEKDAYS.map((day) => <span key={day} className="weekday">{day}</span>)}
+      {weekdays.map((day) => <span key={day} className="weekday">{day}</span>)}
       {cells.map((day, index) => {
         const date = day >= 1 && day <= days ? `${month}-${String(day).padStart(2, "0")}` : null;
         const own = date ? events.filter((event) => event.date === date) : [];
-        return <div key={index} className={`calendar-day${date ? "" : " other"}${date === today ? " today" : ""}${own.length ? " has-events" : ""}${index % 7 >= 5 ? " weekend" : ""}`}>
+        return <div key={index} className={`calendar-day${date ? "" : " other"}${date === today ? " today" : ""}${own.length ? " has-events" : ""}${(sunday ? [0, 6] : [5, 6]).includes(index % 7) ? " weekend" : ""}`}>
           {date && <b>{day}</b>}
           {own.slice(0, 3).map((event, n) => <i key={n} className={event.tone} title={`${event.title}${event.amount !== null ? ` · ${money(event.amount)}` : ""}`}>
             <span>{event.title}</span>{event.amount !== null && <em>{event.tone === "out" ? "−" : event.tone === "in" ? "+" : ""}{money(event.amount)}</em>}</i>)}

@@ -4,15 +4,16 @@ import {
   Archive, ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpDown, Blocks, ChevronRight, CircleHelp, DatabaseBackup, FileUp, FolderCog, KeyRound,
   Palette, Pencil, Plus, ShieldCheck, SlidersHorizontal, Timer, type LucideIcon,
 } from "lucide-react";
-import { COLORS, subcategoryList, subcategoryUsage, type Account, type Label, type Ledger, type Mutation, type Template } from "../lib/ledger";
+import { categoryColor, subcategoryList, subcategoryUsage, type Account, type Label, type Ledger, type Mutation, type Template } from "../lib/ledger";
 import type { TrashItem } from "../lib/ledger-sync";
 import { IDLE_OPTIONS } from "../lib/config";
 import { idleLabel } from "../lib/session";
 import { PanelTitle, type SessionInfo } from "./ledger-views";
 import {
-  FavoritesPanel, OrganizePanel, OverviewPanel, PanelHead, PeriodPanel, PersonalPanel, ResetPanel, TagsPanel, TrashPanel, reorderActions,
+  FavoritesPanel, OrganizePanel, PanelHead, PeriodPanel, ResetPanel, TagsPanel, TrashPanel, reorderActions,
 } from "./settings-extra";
 import { StyleIcon, toneClass } from "./style";
+import { AppearanceEditor } from "./appearance/editor";
 
 export type SettingsTab = "general" | "look" | "features" | "data" | "security";
 
@@ -106,7 +107,7 @@ function CategoryTree({ ledger, type, busy, onLabel, onStyle, onCommit }: {
   const move = (index: number, step: -1 | 1) => onCommit(reorderActions(active, index, step), "Ordine aggiornato.");
 
   // Senza colore scelto, il pallino usa lo stesso colore dei grafici (posizione nell'elenco), non più un grigio uguale per tutte.
-  const chartTone = (label: Label) => (toneClass(label.value.color) ? undefined : { "--tone": COLORS[labels.indexOf(label) % COLORS.length] } as CSSProperties);
+  const chartTone = (label: Label) => (toneClass(label.value.color) ? undefined : { "--tone": categoryColor(labels.indexOf(label)) } as CSSProperties);
   const mark = (label: Label) => <span className={`label-mark${toneClass(label.value.color)}`} style={chartTone(label)} aria-hidden="true"><StyleIcon icon={label.value.icon} size={13} /></span>;
   const sortRow = (label: Label, index: number) => <li key={label.id} className="tree-leaf">
     <span>{mark(label)}{label.value.name}</span>
@@ -196,10 +197,7 @@ export function Settings(props: SettingsProps) {
         <PeriodPanel ledger={ledger} busy={busy} demo={demo} onCommit={onCommit} />
         <TagsPanel ledger={ledger} onCommit={onCommit} busy={busy} />
       </>}
-      {tab === "look" && <>
-        <PersonalPanel />
-        <OverviewPanel />
-      </>}
+      {tab === "look" && <AppearanceEditor />}
       {tab === "features" && <>
         {panels.modules}
         {panels.people}

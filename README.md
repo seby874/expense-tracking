@@ -2,6 +2,10 @@
 
 App personale in italiano per registrare entrate, spese, trasferimenti, saldi dei conti e patrimonio netto. Interfaccia React + Vite, dati su Cloud Firestore, accesso con Firebase Authentication (email e password).
 
+## Novità della 2.2
+
+Aspetto completamente personalizzabile in Impostazioni → Aspetto, uguale su tutti i dispositivi (documento `setting:look` su Firestore, nessuna regola nuova): 8 temi pronti e tutti i colori modificabili (chiaro e scuro, con controllo del contrasto); chiaro/scuro automatico, fisso o con l'orario; 18 font (Times New Roman, Arial, Courier e Georgia usano su Android i gemelli liberi Tinos, Arimo, Cousine e Gelasio) separati per testo, titoli e numeri; dimensione, peso, interlinea e spaziatura del testo; angoli, ombre, bordi, densità, larghezza e spessore delle icone; sfondi (tinta, sfumatura, sfumatura morbida, 5 motivi, 12 scene disegnate dall'app) con oscuramento, sfocatura, trasparenza ed effetto vetro; menu a sinistra, a destra, in alto o solo icone, ordine e sezioni nascoste, barra del telefono a scelta; Panoramica su 1–3 colonne; formati di importi e date; tavolozze dei grafici e barre al posto della ciambella; accessibilità (animazioni, pulsanti grandi, contorno marcato, collegamenti sottolineati, simboli ▲▼); nome, simbolo e colore del logo; emoji per categorie e conti; aspetto da scaricare e ricaricare come file. Via d'uscita: aggiungere `?aspetto=reset` all'indirizzo.
+
 ## Novità della 2.1
 
 Revisione grafica su PC e telefono: sul telefono un menu fisso in basso (le altre sezioni in «Altro») e un'intestazione più compatta; Impostazioni divise in schede (Generali, Aspetto, Funzioni, Dati e backup, Sicurezza) senza pannelli doppi; Panoramica e Analisi su colonne indipendenti, senza vuoti sotto i riquadri corti; un solo segno meno (−) in tutta l'app; calendario con importi; pagine mai più larghe dello schermo del telefono.
@@ -120,6 +124,14 @@ src/
   app/mobile-nav.tsx    menu in basso del telefono
   app/board.tsx         riquadri su due colonne indipendenti (Panoramica, Analisi)
   app/layout-2-1.css    stili della revisione grafica 2.1 (dopo globals.css)
+  app/theme.css         valori predefiniti del tema (Bosco) e regole delle opzioni dell'aspetto
+  app/appearance/       editor di Impostazioni → Aspetto (temi, colori, sfondo, caratteri, struttura, numeri, grafici…)
+  lib/appearance.ts     modello dell'aspetto sincronizzato (sezioni con schema e valori predefiniti)
+  lib/palettes.ts       colori del tema, temi pronti, contrasto
+  lib/theme-css.ts      dall'aspetto alle variabili CSS e alle classi della pagina
+  lib/theme-runtime.ts  aspetto attivo: applicazione, copia sul dispositivo, sincronizzazione, ?aspetto=reset
+  lib/fonts.ts          font inclusi, scaricati solo quando servono
+  lib/backgrounds.ts    sfondi disegnati nel codice (motivi e scene)
   lib/input-format.ts   testo iniziale dei campi numerici (100.000,00 e 0,2)
   app/analysis.tsx      schede di Analisi, Dichiarazione, rimborsi
   app/fund.tsx          fondo di emergenza e conti deposito

@@ -14,9 +14,10 @@ import {
 } from "../lib/ledger";
 import { TYPE_ICONS } from "./ledger-forms";
 import { Board } from "./board";
+import { getAppearance } from "../lib/theme-runtime";
 import { BudgetPanel, InsightsPanel } from "./planning";
 import { StyleIcon, toneClass } from "./style";
-import { readFilters, readWidgets, saveFilters, type SavedFilter, type WidgetKey } from "../lib/preferences";
+import { readFilters, saveFilters, type SavedFilter, type WidgetKey } from "../lib/preferences";
 import { TagChips } from "./tags";
 
 export type SessionInfo = {
@@ -72,9 +73,9 @@ export function axisMoney(cents: number) {
   if (isDiscreet()) return "•••";
   const value = cents / 100;
   // Segno meno tipografico, come negli importi: il trattino era poco visibile e veniva tagliato sul bordo.
-  const text = Math.abs(value) >= 1000
+  const text = Math.abs(value) >= 1000 && getAppearance().numbers.compact
     ? new Intl.NumberFormat("it-IT", { maximumFractionDigits: 1 }).format(value / 1000) + "k €"
-    : new Intl.NumberFormat("it-IT", { maximumFractionDigits: 2 }).format(value) + " €";
+    : new Intl.NumberFormat("it-IT", { maximumFractionDigits: Math.abs(value) >= 1000 ? 0 : 2, useGrouping: "always" }).format(value) + " €";
   return text.replace(/^-/, "−");
 }
 
@@ -151,11 +152,17 @@ function SpendingCard({ ledger, items, periodName, onOpen }: {
   return <section className="panel spending-panel">
     <PanelTitle title="Spese per categoria" subtitle={periodName}
       action={<button className="icon-button quiet" type="button" aria-label="Vai all’analisi" onClick={onOpen}><ArrowUpRight size={18} /></button>} />
-    <Ring groups={topGroups} total={total} />
-    {total ? <ul className="ring-list">{topGroups.map((group) => <li key={group.id}>
-      <span><i style={{ background: group.color }} />{group.name}</span>
-      <strong>{rate(group.amount / total)}</strong>
-    </li>)}</ul> : <p className="ring-empty">Le categorie compariranno qui quando registri una spesa.</p>}
+    {getAppearance().charts.spending === "bars" && total
+      // Barre orizzontali al posto della ciambella (Impostazioni → Aspetto → Grafici): prime 6 categorie.
+      ? <ul className="breakdown-list spending-bars">{groups.slice(0, 6).map((group) => <li key={group.id}
+        style={{ "--category-color": group.color, "--category-share": `${group.amount / groups[0].amount * 100}%` } as CSSProperties}>
+        <div className="breakdown-row"><span>{group.name}</span><strong>{money(group.amount)} · {rate(group.amount / total)}</strong></div>
+        <div className="breakdown-track"><i /></div></li>)}</ul>
+      : <><Ring groups={topGroups} total={total} />
+        {total ? <ul className="ring-list">{topGroups.map((group) => <li key={group.id}>
+          <span><i style={{ background: group.color }} />{group.name}</span>
+          <strong>{rate(group.amount / total)}</strong>
+        </li>)}</ul> : <p className="ring-empty">Le categorie compariranno qui quando registri una spesa.</p>}</>}
   </section>;
 }
 
@@ -232,11 +239,13 @@ export function Overview({ ledger, year, period, month, monthChange, onEdit, onN
           </li>)}
         </ul>
       </section>;
-  const layout = readWidgets().filter(({ key, on }) => on && blocks[key]);
+  const look = getAppearance();
+  const layout = look.behavior.widgets.filter(({ key, on }) => on && blocks[key]);
   return <>
     {due}
     <PeriodNote period={period} />
-    <Board className="overview-board" items={layout.map(({ key }) => ({ key, node: blocks[key], full: key === "stats", weight: WIDGET_WEIGHT[key] }))} />
+    <Board className="overview-board" columns={look.layout.columns}
+      items={layout.map(({ key }) => ({ key, node: blocks[key], full: key === "stats" || look.layout.wide.includes(key), weight: WIDGET_WEIGHT[key] }))} />
   </>;
 }
 

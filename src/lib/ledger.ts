@@ -409,7 +409,11 @@ export const recordSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("template"), id, version, value: templateValueSchema }),
   z.object({ kind: z.literal("budget"), id, version, value: budgetValueSchema }),
   z.object({ kind: z.literal("goal"), id, version, value: goalValueSchema }),
-  z.object({ kind: z.literal("setting"), id: z.literal("general"), version, value: settingsValueSchema }),
+  // Impostazioni comuni ("general") e aspetto dell'app ("look", letto da lib/appearance.ts sezione per sezione).
+  z.discriminatedUnion("id", [
+    z.object({ kind: z.literal("setting"), id: z.literal("general"), version, value: settingsValueSchema }),
+    z.object({ kind: z.literal("setting"), id: z.literal("look"), version, value: z.record(z.string(), z.unknown()) }),
+  ]),
   z.object({ kind: z.literal("person"), id, version, value: personValueSchema }),
   z.object({ kind: z.literal("deadline"), id, version, value: deadlineValueSchema }),
   z.object({ kind: z.literal("param"), id: z.string().regex(/^\d{4}$/), version, value: paramsValueSchema }),
@@ -445,7 +449,8 @@ export type ImportBatch = Extract<LedgerRecord, { kind: "import" }>;
 export type Template = Extract<LedgerRecord, { kind: "template" }>;
 export type Budget = Extract<LedgerRecord, { kind: "budget" }>;
 export type Goal = Extract<LedgerRecord, { kind: "goal" }>;
-export type Settings = Extract<LedgerRecord, { kind: "setting" }>;
+export type Settings = Extract<LedgerRecord, { kind: "setting"; id: "general" }>;
+export type LookRecord = Extract<LedgerRecord, { kind: "setting"; id: "look" }>;
 export type Person = Extract<LedgerRecord, { kind: "person" }>;
 export type Deadline = Extract<LedgerRecord, { kind: "deadline" }>;
 export type Params = Extract<LedgerRecord, { kind: "param" }>;
@@ -524,6 +529,7 @@ export function deriveLedger(records: LedgerRecord[]) {
   const deadlines: Deadline[] = [];
   const params: Params[] = [];
   let settings: Settings | null = null;
+  let look: LookRecord | null = null;
   const removed: (Account | Label)[] = [];
   const { live, archivedYears, archives, invalidArchived, fromArchive } = expandArchives(records);
 
@@ -543,7 +549,7 @@ export function deriveLedger(records: LedgerRecord[]) {
       case "template": templates.push(record); break;
       case "budget": budgets.push(record); break;
       case "goal": goals.push(record); break;
-      case "setting": settings = record; break;
+      case "setting": if (record.id === "general") settings = record; else look = record; break;
       case "person": people.push(record); break;
       case "deadline": deadlines.push(record); break;
       case "param": params.push(record); break;
@@ -566,7 +572,7 @@ export function deriveLedger(records: LedgerRecord[]) {
     .sort((a, b) => a.key - b.key).map(({ item }) => item);
   return {
     accounts: ordered([...accounts.values()]), labels: ordered([...labels.values()]), movements, balances, recurring, rules, imports, templates,
-    budgets, goals, settings: (settings as Settings | null)?.value ?? DEFAULT_SETTINGS, settingsRecord: settings as Settings | null, removed,
+    budgets, goals, settings: (settings as Settings | null)?.value ?? DEFAULT_SETTINGS, settingsRecord: settings as Settings | null, lookRecord: look as LookRecord | null, removed,
     people, deadlines, params, archives, archivedYears, invalidArchived, fromArchive,
   };
 }
@@ -712,28 +718,65 @@ let discreet = false;
 export function setDiscreet(hidden: boolean) { discreet = hidden; }
 export function isDiscreet() { return discreet; }
 
+// Formati scelti in Impostazioni → Aspetto → Numeri e date (impostati da lib/theme-runtime.ts).
+let showCents = true;
+let negativeParens = false;
+let dateStyle: "numeric" | "short" | "iso" = "numeric";
+
+const CHART_PALETTES: Record<string, string[]> = {
+  default: COLORS,
+  vivid: ["#0aa37f", "#2f6fe4", "#f2762e", "#8b4fe0", "#e2417b", "#13a6c9", "#c98a10", "#5a6fe0", "#e05a2b", "#6b7a99", "#2fa35a", "#d6b300"],
+  pastel: ["#7cc4b0", "#93a9d8", "#f0b894", "#b7a5dc", "#e8a3bc", "#8fcadb", "#d9be95", "#a8b4d6", "#e7c08f", "#b3b6c9", "#9ccaa8", "#e3cf86"],
+  // Okabe-Ito: si distinguono anche con le forme più comuni di daltonismo.
+  colorblind: ["#0072b2", "#e69f00", "#009e73", "#cc79a7", "#56b4e9", "#d55e00", "#f0e442", "#000000", "#999999", "#7f5aa2"],
+};
+let chartColors = COLORS;
+
+export interface DisplayFormat {
+  numbers: { cents: boolean; negative: "minus" | "parens"; date: "numeric" | "short" | "iso" };
+  charts: { palette: string };
+}
+
+export function setDisplayFormat(format: DisplayFormat) {
+  showCents = format.numbers.cents;
+  negativeParens = format.numbers.negative === "parens";
+  dateStyle = format.numbers.date;
+  chartColors = CHART_PALETTES[format.charts.palette] ?? COLORS;
+}
+
+/** Colore di una categoria senza colore scelto (in base alla posizione). */
+export function categoryColor(index: number) {
+  return chartColors[index % chartColors.length];
+}
+
+const wholeEuros = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0, useGrouping: "always" });
+
+/** Negativi con il segno meno tipografico (−) oppure tra parentesi, uguali in tutta l'app. */
+function signed(cents: number, format: Intl.NumberFormat) {
+  const text = format.format(Math.abs(cents) / 100);
+  if (cents >= 0 || text === format.format(0)) return text;
+  return negativeParens ? `(${text})` : `−${text}`;
+}
+
 export function money(value: number | null) {
   if (value === null) return "—";
-  return discreet ? "••• €" : minus(euros.format(value / 100));
+  return discreet ? "••• €" : signed(value, showCents ? euros : wholeEuros);
 }
-
-/** Segno meno tipografico (−) al posto del trattino, uguale in tutta l'app. */
-function minus(text: string) {
-  return text.replace(/^-/, "−");
-}
-
-const wholeEuros = new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
 
 /** Come money(), arrotondato all'euro (per i testi riassuntivi). */
 export function wholeMoney(value: number) {
-  return discreet ? "••• €" : minus(wholeEuros.format(Math.round(value / 100)));
+  return discreet ? "••• €" : signed(value, wholeEuros);
 }
 
 export function rate(value: number | null) {
   return value === null ? "—" : percent.format(value);
 }
 
+const SHORT_MONTHS = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
+
 export function shortDate(date: string) {
+  if (dateStyle === "iso") return date.slice(0, 10);
+  if (dateStyle === "short") return `${Number(date.slice(8, 10))} ${SHORT_MONTHS[Number(date.slice(5, 7)) - 1]} ${date.slice(0, 4)}`;
   return `${date.slice(8, 10)}/${date.slice(5, 7)}/${date.slice(0, 4)}`;
 }
 
@@ -809,7 +852,7 @@ export function mix(movements: Movement[], labels: Label[], type: "expense" | "i
     name: label.value.name,
     amount: values.get(label.id)?.amount ?? 0,
     detail: [...(values.get(label.id)?.detail ?? [])].sort((a, b) => b[1] - a[1]),
-    color: label.value.color && label.value.color in TONE_HEX ? TONE_HEX[label.value.color as Tone] : COLORS[index % COLORS.length],
+    color: label.value.color && label.value.color in TONE_HEX ? TONE_HEX[label.value.color as Tone] : categoryColor(index),
   }));
 }
 
