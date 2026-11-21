@@ -68,10 +68,10 @@ export function themeClasses(appearance: Appearance): string[] {
     access.underline ? "links-underline" : "", access.symbols ? "type-symbols" : "",
     charts.grid ? "" : "charts-nogrid", charts.rounded ? "" : "charts-square",
     background.kind === "theme" ? "" : "bg-custom", background.kind !== "theme" && background.glass ? "bg-glass" : "",
-    numbers.negative === "parens" ? "negative-parens" : "",
+    numbers.negative === "parens" ? "negative-parens" : "", numbers.negative === "red" ? "negative-red" : "",
   ].filter(Boolean);
 }
 
 /** Tutte le classi che il tema può mettere (per toglierle prima di applicarne di nuove). */
 export const THEME_CLASS_PREFIXES = ["nav-", "titles-", "density-", "no-descriptions", "no-borders", "reduce-motion", "motion-reduced", "targets-large",
-  "focus-strong", "links-underline", "type-symbols", "charts-nogrid", "charts-square", "bg-custom", "bg-glass", "negative-parens"];
+  "focus-strong", "links-underline", "type-symbols", "charts-nogrid", "charts-square", "bg-custom", "bg-glass", "negative-parens", "negative-red"];

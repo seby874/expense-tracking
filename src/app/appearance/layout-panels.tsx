@@ -83,7 +83,7 @@ export function NumbersPanel({ appearance, update }: { appearance: Appearance; u
     <Row label="Centesimi" hint={numbers.cents ? "1.234,56 €" : "1.235 € (arrotondati)"}>
       <Toggle label="Mostra i centesimi" checked={numbers.cents} onChange={(cents) => patch(update, "numbers", { cents })} /></Row>
     <Row label="Importi negativi"><Choice label="Importi negativi" value={numbers.negative} onChange={(negative) => patch(update, "numbers", { negative })}
-      options={[["minus", "−12,50 €"], ["parens", "(12,50 €)"]]} /></Row>
+      options={[["minus", "−12,50 €"], ["parens", "(12,50 €)"], ["red", "−12,50 € in rosso"]]} /></Row>
     <Row label="Cifre abbreviate nei grafici" hint={numbers.compact ? "1,2k €" : "1.200 €"}>
       <Toggle label="Cifre abbreviate nei grafici" checked={numbers.compact} onChange={(compact) => patch(update, "numbers", { compact })} /></Row>
     <Row label="Formato delle date"><Choice label="Formato delle date" value={numbers.date} onChange={(date) => patch(update, "numbers", { date })}

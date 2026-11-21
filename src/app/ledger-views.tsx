@@ -122,7 +122,7 @@ function FlowChart({ ledger, year, period, monthChange, demoAction }: PeriodProp
       </div>
     </div>
     <div className="flow-footer">
-      <Legend items={[{ name: "Entrate", color: "#228b75" }, { name: "Spese", color: "#df9677" }, ...(hasRepaid ? [{ name: "Rimborsi debiti", color: "#8d7fc2" }] : [])]} />
+      <Legend items={[{ name: "Entrate", color: "var(--chart-income)" }, { name: "Spese", color: "var(--chart-expense)" }, ...(hasRepaid ? [{ name: "Rimborsi debiti", color: "var(--chart-repaid)" }] : [])]} />
       {demoAction}
     </div>
   </section>;
@@ -135,8 +135,9 @@ function Ring({ groups, total }: { groups: ReturnType<typeof mix>; total: number
     used += amount / total * 100;
     return `${color} ${start}% ${used}%`;
   });
-  return <div className="ring" style={{ background: total ? `conic-gradient(${slices.join(", ")})` : undefined }}
-    aria-label={`Totale ${money(total)}`}>
+  // Descrizione per i lettori di schermo: totale e quota di ogni categoria.
+  const description = total ? `Spese per categoria, totale ${money(total)}: ${groups.filter(({ amount }) => amount > 0).map(({ name, amount }) => `${name} ${rate(amount / total)}`).join(", ")}` : "Nessuna spesa nel periodo";
+  return <div className="ring" role="img" style={{ background: total ? `conic-gradient(${slices.join(", ")})` : undefined }} aria-label={description}>
     <div className="ring-center"><span>Totale spese</span><strong>{money(total)}</strong></div>
   </div>;
 }
@@ -293,7 +294,7 @@ function MovementTable({ items, ledger, onEdit, compact = false, onTag, selected
   }
   const labels = new Map(ledger.labels.map((label) => [label.id, label.value.name]));
   const accounts = new Map(ledger.accounts.map((account) => [account.id, account.value.name]));
-  return <div className="table-scroll">
+  return <div className="table-scroll" tabIndex={0}>
     <table className={compact ? "data-table compact-table" : "data-table"}>
       <thead><tr>{selected && <th scope="col" className="select-cell"><span className="sr-only">Seleziona</span></th>}<th scope="col">Descrizione</th><th scope="col">Data</th>{!compact && <><th scope="col">Categoria / Fonte</th><th scope="col">Conto</th></>}<th scope="col" className="number">Importo</th><th scope="col"><span className="sr-only">Azioni</span></th></tr></thead>
       <tbody>{items.map((entry) => {
@@ -311,13 +312,13 @@ function MovementTable({ items, ledger, onEdit, compact = false, onTag, selected
         return <tr key={entry.id} className={selected?.has(entry.id) ? "is-selected" : undefined}
           onTouchStart={onSwipe ? touchStart : undefined} onTouchMove={onSwipe ? touchMove : undefined} onTouchEnd={onSwipe ? (event) => touchEnd(event, entry) : undefined}>
           {selected && <td className="select-cell"><input type="checkbox" checked={selected.has(entry.id)} onChange={() => onSelect?.(entry.id)} aria-label={`Seleziona ${value.title}`} /></td>}
-          <td><div className="movement-name"><span className={`entry-icon entry-${value.type}`}><Icon size={16} /></span>
+          <td className="cell-name"><div className="movement-name"><span className={`entry-icon entry-${value.type}`}><Icon size={16} /></span>
             <span><strong>{value.title}</strong>{!compact && <TagChips tags={value.tags} onClick={onTag} />}{compact && <small>{category}</small>}{!compact && value.notes && <small className="truncate" title={value.notes}>{value.notes}</small>}</span>
           </div></td>
-          <td className="table-muted">{shortDate(value.date)}</td>
+          <td className="table-muted cell-date">{shortDate(value.date)}</td>
           {!compact && <>
-            <td><span>{category}</span>{subtitle && <small className="table-subtitle">{subtitle}</small>}</td>
-            <td><span>{value.type === "transfer" ? `${account ?? "—"} → ${accounts.get(value.toAccountId) ?? "—"}` : account ?? "—"}</span>
+            <td className="cell-category"><span>{category}</span>{subtitle && <small className="table-subtitle">{subtitle}</small>}</td>
+            <td className="cell-account"><span>{value.type === "transfer" ? `${account ?? "—"} → ${accounts.get(value.toAccountId) ?? "—"}` : account ?? "—"}</span>
               {value.type === "expense" && value.method && <small className="table-subtitle">{value.method}</small>}</td>
           </>}
           <td className={`number entry-amount amount-${value.type}`}>{value.type === "expense" || value.type === "repayment" ? "−" : value.type === "income" ? "+" : ""}{money(value.amount)}</td>
@@ -554,7 +555,9 @@ function StackedChart({ ledger, year, type }: { ledger: Ledger; year: number; ty
         <AxisGrid ticks={mode === "euros" ? [top, top * .75, top * .5, top * .25, 0] : [1, .75, .5, .25, 0]}
           format={mode === "euros" ? axisMoney : rate} />
         <div className="plot-columns">
-          {grouped.map(({ month, parts, amount }) => <div className="plot-month" key={month} title={`${monthLabel(month)} · ${money(amount)}`}>
+          {grouped.map(({ month, parts, amount }) => <div className="plot-month" key={month} title={`${monthLabel(month)} · ${money(amount)}`}
+            role="img" aria-label={amount ? `${monthLabel(month)}: ${money(amount)}. ${parts.filter((part) => part.amount > 0).sort((a, b) => b.amount - a.amount)
+              .map((part) => `${part.name} ${money(part.amount)}`).join(", ")}` : `${monthLabel(month)}: nessun importo`}>
             <div className="stack-pile">
               {parts.filter((part) => part.amount > 0).map((part) => <span key={part.id}
                 title={`${monthName(month)} · ${part.name} · ${money(part.amount)} · ${rate(part.amount / amount)}`}
@@ -603,7 +606,7 @@ function Compare({ ledger, year, period, type }: Omit<PeriodProps, "month" | "mo
       <label><span><i className="dot compare-a" /> Periodo A</span><select value={first} onChange={(event) => setFirst(event.target.value)}>{options}</select></label>
       <label><span><i className="dot compare-b" /> Periodo B</span><select value={second} onChange={(event) => setSecond(event.target.value)}>{options}</select></label>
     </div>
-    {rows.length ? <div className="table-scroll"><table className="data-table comparison-table">
+    {rows.length ? <div className="table-scroll" tabIndex={0}><table className="data-table comparison-table">
       <thead><tr><th scope="col">{type === "expense" ? "Categoria" : "Fonte"}</th><th scope="col" className="number">Periodo A</th><th scope="col" className="number">Periodo B</th></tr></thead>
       <tbody>{rows.map(({ group, other }) => <tr key={group.id}>
         <td><strong>{group.name}{archivedIds.has(group.id) && <small> · archiviata</small>}</strong><div className="compare-bars" aria-hidden="true">
@@ -636,7 +639,7 @@ function TagReport({ ledger, year, period }: Pick<PeriodProps, "ledger" | "year"
   if (!list.length) return null;
   return <section className="panel tag-report">
     <PanelTitle title="Per tag" subtitle={`Quanto è costato ogni evento o progetto · ${period.length === 4 ? `anno ${year}` : monthLabel(period)}`} />
-    <div className="table-scroll"><table className="data-table">
+    <div className="table-scroll" tabIndex={0}><table className="data-table">
       <thead><tr><th scope="col">Tag</th><th scope="col" className="number">Movimenti</th><th scope="col" className="number">Spese</th><th scope="col" className="number">Entrate</th></tr></thead>
       <tbody>{list.map((row) => <tr key={row.name}><td><span className="tag-chip small"><Tag size={10} />{row.name}</span></td>
         <td className="number">{row.count}</td><td className="number">{money(row.expense)}</td><td className="number">{money(row.income)}</td></tr>)}</tbody>
@@ -686,7 +689,7 @@ export function Reports({ ledger, year, period, today, onBudget, onSummary }: Pi
       { key: "compare", weight: 4, node: <Compare key={period + type} {...{ ledger, year, period, type }} /> },
       { key: "annual", weight: 4, node: <section className="panel annual-panel">
         <PanelTitle title={`Riepilogo ${year}`} subtitle="Flussi e risparmio per mese." />
-        {shownFlows.length ? <div className="table-scroll"><table className="data-table">
+        {shownFlows.length ? <div className="table-scroll" tabIndex={0}><table className="data-table">
           <thead><tr><th scope="col">Mese</th><th scope="col" className="number">Entrate</th><th scope="col" className="number">Spese</th><th scope="col" className="number">Risparmio</th><th scope="col" className="number">%</th></tr></thead>
           <tbody>{shownFlows.map((row) => <tr key={row.month}>
             <td>{monthName(row.month)}</td><td className="number">{money(row.income)}</td><td className="number">{money(row.expense)}</td>

@@ -151,3 +151,13 @@ export class LedgerMirror<T extends Stamp = Stamp> {
     return records;
   }
 }
+
+/** Archivio aggiornato dopo un salvataggio: tolte le voci eliminate, sostituite quelle salvate (con la nuova versione). */
+export function applyActions(records: LedgerRecord[], actions: Mutation[], saved: LedgerRecord[]) {
+  const removed = new Set(actions.flatMap((action) => (action.op === "delete" ? [`${action.kind}:${action.id}`] : [])));
+  const replaced = new Map(saved.map((record) => [`${record.kind}:${record.id}`, record]));
+  return [
+    ...records.filter((record) => !removed.has(`${record.kind}:${record.id}`) && !replaced.has(`${record.kind}:${record.id}`)),
+    ...replaced.values(),
+  ];
+}

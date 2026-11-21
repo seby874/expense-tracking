@@ -84,7 +84,7 @@ export function Patrimonio({ ledger, year, month, monthChange, tab, onTab, fund,
       <span className="net-decoration" aria-hidden="true"><ChartNoAxesCombined size={126} strokeWidth={1} /></span>
     </section>
     <div className="segmented patrimonio-tabs" role="tablist" aria-label="Sezioni del patrimonio">
-      {tabs.map(([key, title, Icon]) => <button type="button" role="tab" key={key} aria-selected={tab === key} aria-pressed={tab === key}
+      {tabs.map(([key, title, Icon]) => <button type="button" role="tab" key={key} aria-selected={tab === key}
         onClick={() => onTab(key)}><Icon size={16} />{title}</button>)}
     </div>
     {tab === "accounts" && <AccountsTab {...{ ledger, year, month, monthChange }} {...handlers} />}

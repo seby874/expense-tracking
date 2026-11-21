@@ -15,7 +15,7 @@ export type Palette = Record<ColorToken, string>;
 
 /** Aspetto originale dell'app (2.0–2.1), chiaro. */
 export const BOSCO_LIGHT: Palette = {
-  bg: "#f5f7f6", surface: "#ffffff", subtle: "#f7faf8", ink: "#172b25", muted: "#5e7069", soft: "#6c7e76", label: "#35564a",
+  bg: "#f5f7f6", surface: "#ffffff", subtle: "#f7faf8", ink: "#172b25", muted: "#5e7069", soft: "#627469", label: "#35564a",
   line: "#e0e8e3", "line-strong": "#d3dfd8", accent: "#106a56", "accent-hover": "#0c5646", "accent-pale": "#e5f3eb",
   "accent-solid": "#106a56", "on-accent": "#ffffff", good: "#146850", "good-pale": "#e6f4ec", "good-border": "#cfe7d9",
   warn: "#9a5a17", "warn-pale": "#fdf3e6", "warn-border": "#f0dcc0", "warn-solid": "#d98c2b", danger: "#c8463d",
@@ -31,7 +31,7 @@ export const BOSCO_LIGHT: Palette = {
 export const BOSCO_DARK: Palette = {
   bg: "#0d1613", surface: "#14201c", subtle: "#111c18", ink: "#e4eee9", muted: "#9fb3aa", soft: "#8ea39a", label: "#b6cbc1",
   line: "#22322c", "line-strong": "#2f433a", accent: "#5cd0a8", "accent-hover": "#86e0c0", "accent-pale": "#173a2f",
-  "accent-solid": "#1f8f70", "on-accent": "#ffffff", good: "#6fd3ad", "good-pale": "#133429", "good-border": "#24503f",
+  "accent-solid": "#1b7d62", "on-accent": "#ffffff", good: "#6fd3ad", "good-pale": "#133429", "good-border": "#24503f",
   warn: "#f0b47a", "warn-pale": "#33251a", "warn-border": "#4d3824", "warn-solid": "#d98c2b", danger: "#f2a9a3",
   "danger-pale": "#2e1919", "danger-solid": "#b8474c", repay: "#c9b0f0", "repay-pale": "#221c33", "repay-border": "#382d52",
   "due-bg": "#1a1c15", "due-border": "#3d3622", income: "#6fd3ad", "income-pale": "#163a2e", expense: "#f0a283",
@@ -122,7 +122,8 @@ export function contrastIssues(palette: Palette): ContrastIssue[] {
 /** Cambia il colore principale di una tavolozza e ricalcola le sue varianti. */
 export function withAccent(palette: Palette, accent: string, dark: boolean): Palette {
   const [hue, sat, light] = hexToHsl(accent);
-  const solid = dark ? hslToHex(hue, Math.min(sat, 70), 36) : accent;
+  // Pulsanti scuri abbastanza profondi da reggere il testo bianco (contrasto 4,5).
+  const solid = dark ? hslToHex(hue, Math.min(sat, 70), 30) : accent;
   const text = dark ? hslToHex(hue, Math.min(sat + 5, 70), 62) : accent;
   return {
     ...palette, accent: text, "accent-solid": solid,
@@ -154,7 +155,7 @@ export function paletteFromSeed(seed: ThemeSeed): { light: Palette; dark: Palett
   const light: Palette = withAccent({
     ...BOSCO_LIGHT, ...side,
     bg: hslToHex(hue, 14 * t, 96.5), surface: "#ffffff", subtle: hslToHex(hue, 22 * t, 98), ink: hslToHex(hue, 32 * t, 13),
-    muted: hslToHex(hue, 10 * t, 40), soft: hslToHex(hue, 8 * t, 45), label: hslToHex(hue, 24 * t, 27),
+    muted: hslToHex(hue, 10 * t, 40), soft: hslToHex(hue, 8 * t, 42), label: hslToHex(hue, 24 * t, 27),
     line: hslToHex(hue, 18 * t, 89), "line-strong": hslToHex(hue, 18 * t, 85), hero: hslToHex(accentHue, Math.min(accentSat, 55), 17),
     "hero-ink": hslToHex(accentHue, 30, 95), "shadow-color": hslToHex(hue, 30 * t, 12),
   }, seed.accent, false);

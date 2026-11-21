@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { ArrowDownLeft, ArrowUpRight, Check, SlidersHorizontal, Star } from "lucide-react";
+import { parseSpoken, weekdaySuggestion } from "../lib/quick-assist";
+import { ArrowDownLeft, ArrowUpRight, Check, Mic, SlidersHorizontal, Star } from "lucide-react";
 import {
   activeLabels, allTags, evaluateAmount, money, newId, subcategoryList, templateMovement, titleSuggestions,
   type Ledger, type Movement, type Mutation, type Template, type TitleSuggestion,
@@ -45,6 +46,17 @@ function usualAccount(ledger: Ledger, type: "expense" | "income") {
  * Inserimento veloce, pensato per il telefono: importo, una categoria con un tocco, salva.
  * Il resto (conto, data, descrizione, tag) ha già un valore sensato.
  */
+/** Riconoscimento vocale del browser (Chrome e Safari; Firefox no). Tipo minimo: non è nelle definizioni standard. */
+interface Recognition {
+  lang: string; interimResults: boolean; maxAlternatives: number; start: () => void;
+  onresult: ((event: { results: { [index: number]: { [index: number]: { transcript: string } } } }) => void) | null;
+  onerror: (() => void) | null; onend: (() => void) | null;
+}
+function speechRecognition(): (new () => Recognition) | null {
+  const scope = window as unknown as { SpeechRecognition?: new () => Recognition; webkitSpeechRecognition?: new () => Recognition };
+  return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null;
+}
+
 export function QuickEntry({ ledger, kind, today, busy, error, onSave, onMore }: {
   ledger: Ledger; kind: "expense" | "income"; today: string; busy: boolean; error: string;
   onSave: (actions: Mutation[], message: string, again: boolean) => Promise<boolean>;
@@ -74,7 +86,44 @@ export function QuickEntry({ ledger, kind, today, busy, error, onSave, onMore }:
     { labelId: label.id, subcategory: "" },
     ...(type === "expense" && showAll ? subcategoryList(ledger, label.id).map((subcategory) => ({ labelId: label.id, subcategory })) : []),
   ]);
-  const shown = showAll ? all : [...frequent, ...all.filter((item) => !frequent.some((other) => choiceKey(other) === choiceKey(item)))].slice(0, frequent.length ? 10 : 12);
+  // Categoria abituale per questo giorno della settimana: proposta per prima (non scelta al posto tuo).
+  const habit = useMemo(() => weekdaySuggestion(ledger, type, date), [ledger, type, date]);
+  const habitChoice: Choice | null = habit && labels.some((label) => label.id === habit.labelId) ? { labelId: habit.labelId, subcategory: habit.subcategory } : null;
+  const ordered = habitChoice ? [habitChoice, ...frequent.filter((item) => choiceKey(item) !== choiceKey(habitChoice))] : frequent;
+  const shown = showAll ? all : [...ordered, ...all.filter((item) => !ordered.some((other) => choiceKey(other) === choiceKey(item)))].slice(0, ordered.length ? 10 : 12);
+  const [listening, setListening] = useState(false);
+  // Categoria scelta nel frattempo: la dettatura non la sovrascrive (il riconoscimento arriva dopo qualche istante).
+  const choiceRef = useRef(choice);
+  choiceRef.current = choice;
+  const speech = speechRecognition();
+
+  /** Dettatura: «caffè 1,20» → importo e descrizione; la categoria come l'ultima volta con quella descrizione. */
+  function dictate() {
+    if (!speech || listening) return;
+    const recognition = new speech();
+    recognition.lang = "it-IT";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event) => {
+      const heard = parseSpoken(event.results[0][0].transcript);
+      if (heard.amount !== null) setAmountText(amountInput(heard.amount));
+      if (heard.title) {
+        const match = titleSuggestions(ledger, type, heard.title)[0];
+        if (match && !choiceRef.current) pickSuggestion({ ...match, amount: heard.amount ?? match.amount });
+        else setTitle(heard.title);
+      }
+      setValidation("");
+    };
+    recognition.onerror = () => setValidation("Non ho capito: riprova o scrivi l’importo.");
+    recognition.onend = () => setListening(false);
+    setListening(true);
+    try {
+      recognition.start();
+    } catch {
+      setListening(false);
+      setValidation("Il microfono non è disponibile in questo momento.");
+    }
+  }
   const amount = evaluateAmount(amountText);
   const suggestions = titleSuggestions(ledger, type, title);
 
@@ -172,6 +221,9 @@ export function QuickEntry({ ledger, kind, today, busy, error, onSave, onMore }:
       <input ref={amountRef} inputMode="text" enterKeyHint="done" placeholder="0,00" value={amountText} maxLength={40}
         onChange={(event) => setAmountText(event.target.value.replace(/[^\d.,+\-*/()x×÷: ]/g, ""))} aria-label="Importo in euro (anche come operazione)" />
       <span aria-hidden="true">€</span>
+      {speech && <button type="button" className={`icon-button quiet dictate${listening ? " is-listening" : ""}`} onClick={dictate}
+        aria-label={listening ? "Ti ascolto…" : "Detta la spesa"} title="Detta la spesa, per esempio «caffè 1,20» (il riconoscimento vocale passa dal browser: su Chrome dai server di Google)">
+        <Mic size={18} /></button>}
     </label>
     <AmountPreview text={amountText} />
     <div className="quick-choices" role="group" aria-label={type === "expense" ? "Categoria" : "Fonte"}>
@@ -180,7 +232,8 @@ export function QuickEntry({ ledger, kind, today, busy, error, onSave, onMore }:
         return <button type="button" key={choiceKey(item)} aria-pressed={selected} onClick={() => { setChoice(item); setValidation(""); }}>
           {selected && <Check size={14} />}
           <span>{item.subcategory || labelName(item.labelId)}</span>
-          {item.subcategory && <small>{labelName(item.labelId)}</small>}
+          {habitChoice && choiceKey(item) === choiceKey(habitChoice) ? <small className="habit-note">di solito il {habit?.weekday}</small>
+            : item.subcategory && <small>{labelName(item.labelId)}</small>}
         </button>;
       })}
       <button type="button" className="quick-more" onClick={() => setShowAll((value) => !value)}>

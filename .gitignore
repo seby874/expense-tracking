@@ -1,8 +1,10 @@
-node_modules/
 .DS_Store
-*.log
 .env
 .env.*
 .firebase/
 firebase-debug.log
 firestore-debug.log
+*.log
+node_modules/
+playwright-report/
+test-results/

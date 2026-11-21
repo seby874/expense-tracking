@@ -1,4 +1,4 @@
-# Controlli automatici a ogni push e pull request: tipi, test e build.
+# Controlli automatici a ogni push e pull request: tipi, test, build e test dell'interfaccia.
 # Verifica anche che la cartella docs/ (pubblicata su GitHub Pages) sia aggiornata rispetto al codice.
 name: Controlli
 
@@ -31,3 +31,16 @@ jobs:
             git status --short docs
             exit 1
           fi
+
+  interfaccia:
+    # L'app vera con l'archivio simulato, su PC e telefono (usa il Chrome già presente sulla macchina di GitHub).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:e2e

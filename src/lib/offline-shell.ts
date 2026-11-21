@@ -16,6 +16,8 @@ export function removeOfflineShell() {
       // Solo il service worker di questa app: su github.io lo stesso indirizzo ospita anche altri siti.
       .then((registrations) => Promise.all(registrations
         .filter((registration) => registration.scope === new URL("./", window.location.href).href)
+        // Quello delle notifiche (2.3) resta: non salva copie della pagina.
+        .filter((registration) => !(registration.active ?? registration.waiting ?? registration.installing)?.scriptURL.endsWith("/notify-sw.js"))
         .map((registration) => registration.unregister())))
       .then(clearCaches)
       .catch((error) => console.warn("Rimozione della copia offline non riuscita:", error));

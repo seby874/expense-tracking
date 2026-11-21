@@ -5,7 +5,7 @@ import { freeOccurrence } from "../lib/fixed";
 import { TYPE_ICONS } from "./ledger-forms";
 import { Empty, PanelTitle } from "./ledger-views";
 
-function amountText(recurring: Recurring) {
+export function amountText(recurring: Recurring) {
   const { type, amount } = recurring.value.template;
   return `${type === "expense" || type === "repayment" ? "−" : type === "income" ? "+" : ""}${money(amount)}`;
 }

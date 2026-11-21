@@ -204,7 +204,7 @@ export function FundTab({ ledger, today, busy, onCommit, onMove, onInterest, onS
           ? `Al ritmo di risparmio dell’ultimo anno (${money(saving)} al mese) arrivi all’obiettivo in circa ${toTarget} ${toTarget === 1 ? "mese" : "mesi"}.`
           : "Nell’ultimo anno il risparmio è stato nullo o negativo: l’obiettivo non si avvicina."}</p>}
         {status.monthsCovered !== null && status.monthsNow !== null && status.monthsNow < status.monthsCovered / 2 && <p className="tax-warnings"><AlertTriangle size={15} /> Più di metà del fondo è vincolata: in un’emergenza i soldi disponibili subito coprono solo {months(status.monthsNow)}.</p>}
-        <div className="table-scroll"><table className="data-table compact-table">
+        <div className="table-scroll" tabIndex={0}><table className="data-table compact-table">
           <thead><tr><th scope="col">Dove</th><th scope="col">Disponibilità</th><th scope="col" className="number">Importo</th><th scope="col" className="number">Peso</th><th scope="col" className="number">Conta</th></tr></thead>
           <tbody>{status.rows.map((row, index) => <tr key={`${row.account.id}-${index}`}>
             <td>{row.label}</td><td>{BUCKET_LABELS[row.bucket]}</td><td className="number">{money(row.amount)}</td>

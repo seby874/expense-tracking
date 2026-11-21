@@ -402,7 +402,7 @@ export function WorthPanel({ ledger, month, onMonth }: { ledger: Ledger; month: 
         </ul>
       </div>}
       <details className="history-detail"><summary>Mostra valori mensili</summary>
-        <div className="table-scroll"><table className="data-table compact-table">
+        <div className="table-scroll" tabIndex={0}><table className="data-table compact-table">
           <thead><tr><th scope="col">Mese</th>{SERIES.map(({ key, name }) => <th key={key} className="number" scope="col">{name}</th>)}</tr></thead>
           <tbody>{[...points].reverse().map((point) => <tr key={point.month}><td>{monthLabel(point.month)}</td>
             {SERIES.map(({ key }) => <td key={key} className="number">{money(key === "debt" && point.debt !== null ? -point.debt : point[key])}</td>)}</tr>)}</tbody>

@@ -1,5 +1,5 @@
 // Impostazioni divise in schede (2.1): prima erano una ventina di pannelli in un'unica colonna.
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { Suspense, lazy, useState, type CSSProperties, type ReactNode } from "react";
 import {
   Archive, ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpDown, Blocks, ChevronRight, CircleHelp, DatabaseBackup, FileUp, FolderCog, KeyRound,
   Palette, Pencil, Plus, ShieldCheck, SlidersHorizontal, Timer, type LucideIcon,
@@ -13,7 +13,7 @@ import {
   FavoritesPanel, OrganizePanel, PanelHead, PeriodPanel, ResetPanel, TagsPanel, TrashPanel, reorderActions,
 } from "./settings-extra";
 import { StyleIcon, toneClass } from "./style";
-import { AppearanceEditor } from "./appearance/editor";
+const AppearanceEditor = lazy(() => import("./appearance/editor").then((module) => ({ default: module.AppearanceEditor })));
 
 export type SettingsTab = "general" | "look" | "features" | "data" | "security";
 
@@ -100,6 +100,7 @@ function CategoryTree({ ledger, type, busy, onLabel, onStyle, onCommit }: {
   onCommit: (actions: Mutation[], message: string) => void;
 }) {
   const [sorting, setSorting] = useState(false);
+  const [open, setOpen] = useState<Set<string>>(() => new Set());
   const labels = ledger.labels.filter((label) => label.value.type === type);
   const active = labels.filter((label) => !label.value.archived);
   const archived = labels.filter((label) => label.value.archived);
@@ -119,20 +120,27 @@ function CategoryTree({ ledger, type, busy, onLabel, onStyle, onCommit }: {
   const row = (label: Label) => {
     const subs = expense ? subcategoryList(ledger, label.id) : [];
     const look = <button type="button" className="icon-button quiet" aria-label={`Colore e icona di ${label.value.name}`} title="Colore e icona"
-      onClick={(event) => { event.preventDefault(); onStyle(label); }}><Palette size={16} /></button>;
+      onClick={() => onStyle(label)}><Palette size={16} /></button>;
     const edit = <button type="button" className="icon-button quiet" aria-label={`Modifica ${label.value.name}`}
-      title={expense ? "Modifica nome e sottocategorie" : "Modifica"} onClick={(event) => { event.preventDefault(); onLabel(type, label); }}><Pencil size={16} /></button>;
+      title={expense ? "Modifica nome e sottocategorie" : "Modifica"} onClick={() => onLabel(type, label)}><Pencil size={16} /></button>;
     if (!expense) return <li key={label.id} className="tree-leaf"><span>{mark(label)}{label.value.name}</span><span className="archived-actions">{look}{edit}</span></li>;
-    return <li key={label.id}>
-      <details className="tree-node">
-        <summary><ChevronRight size={15} className="tree-chevron" /><span>{mark(label)}{label.value.name}</span>
-          <span className="tree-count" title="Sottocategorie">{subs.length}</span>{look}{edit}</summary>
+    // Apri/chiudi e i pulsanti stanno uno accanto all'altro (non uno dentro l'altro): tastiera e lettori di schermo li distinguono.
+    const isOpen = open.has(label.id);
+    return <li key={label.id} className="tree-node">
+      <div className="tree-head">
+        <button type="button" className="tree-toggle" aria-expanded={isOpen} aria-controls={`subs-${label.id}`}
+          onClick={() => setOpen((current) => { const next = new Set(current); if (next.has(label.id)) next.delete(label.id); else next.add(label.id); return next; })}>
+          <ChevronRight size={15} className="tree-chevron" /><span>{mark(label)}{label.value.name}</span>
+          <span className="tree-count" aria-label={`${subs.length} sottocategorie`}>{subs.length}</span></button>
+        {look}{edit}
+      </div>
+      {isOpen && <div id={`subs-${label.id}`}>
         {subs.length ? <ul className="tree-children">{subs.map((name) => {
           const used = subcategoryUsage(ledger, label.id, name).length;
           return <li key={name}><span>{name}</span>{used > 0 && <small>{used} {used === 1 ? "movimento" : "movimenti"}</small>}</li>;
         })}</ul> : <p className="tree-empty">Nessuna sottocategoria.</p>}
         <button type="button" className="text-button tree-manage" onClick={() => onLabel(type, label)}><Pencil size={14} /> Gestisci sottocategorie</button>
-      </details>
+      </div>}
     </li>;
   };
   return <section className="panel label-panel">
@@ -197,7 +205,7 @@ export function Settings(props: SettingsProps) {
         <PeriodPanel ledger={ledger} busy={busy} demo={demo} onCommit={onCommit} />
         <TagsPanel ledger={ledger} onCommit={onCommit} busy={busy} />
       </>}
-      {tab === "look" && <AppearanceEditor />}
+      {tab === "look" && <Suspense fallback={<p className="loading-status" role="status">Caricamento…</p>}><AppearanceEditor /></Suspense>}
       {tab === "features" && <>
         {panels.modules}
         {panels.people}

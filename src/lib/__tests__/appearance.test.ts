@@ -52,6 +52,13 @@ describe("themes", () => {
     }
   });
 
+  it("every preset passes the contrast check in both modes", () => {
+    for (const preset of THEME_PRESETS) {
+      expect(contrastIssues(preset.light), `${preset.id} chiaro`).toEqual([]);
+      expect(contrastIssues(preset.dark), `${preset.id} scuro`).toEqual([]);
+    }
+  });
+
   it("flags unreadable custom colors", () => {
     const unreadable = setColor(DEFAULT_APPEARANCE, false, "ink", "#f0f0f0");
     expect(contrastIssues(unreadable.theme.light).map((issue) => issue.pair)).toContain("Testo nei riquadri");
@@ -139,6 +146,13 @@ describe("display formats", () => {
     setDisplayFormat(normalizeAppearance({ numbers: { ...DEFAULT_APPEARANCE.numbers, cents: false, negative: "parens" } }));
     expect(money(-123_456).replace(/\s/g, " ")).toBe("(1.235 €)");
     expect(money(5_000).replace(/\s/g, " ")).toBe("50 €");
+  });
+
+  it("keeps the minus sign when negatives are shown in red", () => {
+    const appearance = normalizeAppearance({ numbers: { ...DEFAULT_APPEARANCE.numbers, negative: "red" } });
+    setDisplayFormat(appearance);
+    expect(money(-1_250).replace(/\s/g, " ")).toBe("−12,50 €");
+    expect(themeClasses(appearance)).toContain("negative-red");
   });
 
   it("writes dates in the chosen format", () => {

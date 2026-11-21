@@ -404,7 +404,7 @@ export function ParamsPanel({ ledger, today, busy, onCommit }: { ledger: Ledger;
       {tax && <label>Reddito complessivo {year} (€) <span className="optional">dalla CU o dal 730, facoltativo</span>
         <input inputMode="decimal" value={text("income", euroText(value.income))} onChange={(event) => set("income", event.target.value)} /></label>}
     </div>
-    {tax && <div className="table-scroll"><table className="data-table compact-table">
+    {tax && <div className="table-scroll" tabIndex={0}><table className="data-table compact-table">
       <thead><tr><th scope="col">Voce</th><th scope="col">Attiva</th><th scope="col" className="number">%</th><th scope="col" className="number">Franchigia €</th><th scope="col" className="number">Tetto €</th></tr></thead>
       <tbody>{DEDUCTIONS.map((info) => {
         const rule = value.deductions[info.key];

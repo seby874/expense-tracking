@@ -72,7 +72,7 @@ export function YoyView({ ledger, today }: { ledger: Ledger; today: string }) {
         <label className="check-row compact"><input type="checkbox" checked={real} onChange={(event) => setReal(event.target.checked)} />
           <span><strong>Valori del {a} a prezzi del {b}</strong><small>Con l’inflazione inserita nei parametri di ogni anno.</small></span></label>
       </div>
-      <div className="table-scroll"><table className="data-table compact-table">
+      <div className="table-scroll" tabIndex={0}><table className="data-table compact-table">
         <thead><tr><th scope="col"><span className="sr-only">Voce</span></th><th scope="col" className="number">{a}</th><th scope="col" className="number">{b}</th><th scope="col" className="number">Differenza</th><th scope="col" className="number">%</th></tr></thead>
         <tbody>
           {KPI_ROWS.map(([key, name, goodUp]) => {
@@ -93,7 +93,7 @@ export function YoyView({ ledger, today }: { ledger: Ledger; today: string }) {
       <div className="mini-bars" aria-hidden="true">{MONTHS.map((name, index) => <span key={name} className="mini-pair">
         <span style={{ height: `${monthsA[index] / peak * 100}%` }} />
         <span className="current" style={{ height: `${monthsB[index] / peak * 100}%` }} /></span>)}</div>
-      <div className="table-scroll"><table className="data-table compact-table">
+      <div className="table-scroll" tabIndex={0}><table className="data-table compact-table">
         <thead><tr><th scope="col">Mese</th><th scope="col" className="number">{a}</th><th scope="col" className="number">{b}</th><th scope="col" className="number">Differenza</th></tr></thead>
         <tbody>{MONTHS.map((name, index) => (monthsA[index] || monthsB[index]) ? <tr key={name}><td>{name}</td><td className="number">{money(adj(monthsA[index]))}</td>
           <td className="number">{money(monthsB[index])}</td><td className="number">{signed(monthsB[index] - adj(monthsA[index]))}</td></tr> : null)}</tbody>
@@ -113,7 +113,7 @@ export function YoyView({ ledger, today }: { ledger: Ledger; today: string }) {
     </section>}
     {trend.length > 1 && <section className="panel">
       <PanelTitle title="Tutti gli anni" subtitle="Tendenza di lungo periodo." />
-      <div className="table-scroll"><table className="data-table compact-table">
+      <div className="table-scroll" tabIndex={0}><table className="data-table compact-table">
         <thead><tr><th scope="col">Anno</th><th scope="col" className="number">Entrate</th><th scope="col" className="number">Spese</th><th scope="col" className="number">Risparmio</th><th scope="col" className="number">Tasso</th><th scope="col" className="number">Patrimonio a fine anno</th><th scope="col">Spese</th></tr></thead>
         <tbody>{trend.map((row) => <tr key={row.year}><td>{row.year}</td><td className="number">{money(row.income)}</td><td className="number">{money(row.expense)}</td>
           <td className="number">{money(row.saving)}</td><td className="number">{rate(row.rate)}</td><td className="number">{money(row.worthEnd)}</td>
@@ -372,40 +372,6 @@ export function DossierPanel({ ledger, today }: { ledger: Ledger; today: string 
       <button type="button" className="button secondary" onClick={() => window.print()}><Printer size={15} /> Stampa / salva in PDF</button>
     </div>}
   </section>;
-}
-
-// ---------------------------------------------------------------- Avvisi in Panoramica
-
-const REPORT_SEEN_KEY = "et-report-seen";
-
-export function OverviewAlerts({ ledger, today, onOpenDeadlines, onOpenReport }: {
-  ledger: Ledger; today: string; onOpenDeadlines: () => void; onOpenReport: (year: number) => void;
-}) {
-  const [seen, setSeen] = useState(() => { try { return window.localStorage.getItem(REPORT_SEEN_KEY) ?? ""; } catch { return ""; } });
-  const urgent = ledger.deadlines.filter((item) => ["overdue", "soon"].includes(deadlineState(item, today)));
-  const lastYear = Number(today.slice(0, 4)) - 1;
-  // Il report dell'anno chiuso si propone a gennaio, una volta.
-  const report = today.slice(5, 7) === "01" && seen !== String(lastYear) && ledger.movements.some(({ value }) => value.date.startsWith(String(lastYear)));
-  if (!urgent.length && !report) return null;
-  return <section className="panel">
-    <PanelTitle title="Da non dimenticare" subtitle="Scadenze vicine o superate." />
-    <ul className="status-list">
-      {report && <li><FileText size={15} className="status-ok" /><div><strong>Il tuo {lastYear} è pronto</strong><small>Riepilogo dell’anno da conservare con il backup.</small></div>
-        <span className="archived-actions"><button type="button" className="text-button" onClick={() => { onOpenReport(lastYear); markSeen(); }}>Apri</button>
-          <button type="button" className="text-button" onClick={markSeen}>Più tardi</button></span></li>}
-      {urgent.slice(0, 4).map((item) => {
-        const days = daysUntil(item.value.date, today);
-        return <li key={item.id}><Timer size={15} className={days < 0 ? "status-bad" : "status-warn"} /><div><strong>{item.value.title}</strong>
-          <small>{days < 0 ? `scaduta da ${-days} giorni` : days === 0 ? "oggi" : `tra ${days} giorni (${shortDate(item.value.date)})`}</small></div>
-          <button type="button" className="text-button" onClick={onOpenDeadlines}>Vedi</button></li>;
-      })}
-    </ul>
-  </section>;
-
-  function markSeen() {
-    try { window.localStorage.setItem(REPORT_SEEN_KEY, String(lastYear)); } catch { /* facoltativo */ }
-    setSeen(String(lastYear));
-  }
 }
 
 // ---------------------------------------------------------------- Controllo di salute

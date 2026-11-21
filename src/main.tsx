@@ -15,6 +15,8 @@ import { IdleWarning, expiredMessage, useIdleLogout } from "./app/session-guard"
 // Font Inter incluso nell'app (nessun servizio esterno: la sicurezza della pagina vieta i font esterni).
 import "@fontsource-variable/inter";
 import "./app/globals.css";
+import "./app/globals-dark.css";
+import "./app/globals-features.css";
 import "./app/layout-2-1.css";
 import "./app/theme.css";
 
@@ -33,6 +35,18 @@ function readEmailAction() {
 const initialAction = readEmailAction();
 
 startAppearance();
+
+// Dopo una pubblicazione, una scheda rimasta aperta cerca parti dell'app che non esistono più:
+// si ricarica una volta da sola invece di mostrare una pagina vuota.
+window.addEventListener("vite:preloadError", (event) => {
+  try {
+    if (sessionStorage.getItem("et-reloaded") === "1") return;
+    sessionStorage.setItem("et-reloaded", "1");
+  } catch { /* senza sessionStorage si ricarica comunque una volta */ }
+  event.preventDefault();
+  window.location.reload();
+});
+window.addEventListener("load", () => { try { sessionStorage.removeItem("et-reloaded"); } catch { /* facoltativo */ } });
 removeOfflineShell();
 
 function App() {

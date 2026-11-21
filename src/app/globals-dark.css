@@ -1,0 +1,104 @@
+/* Ritocchi del tema scuro (importato subito dopo globals.css). */
+/* ------------------------------------------------------------------ Tema scuro */
+@media (prefers-color-scheme: dark) { html:not(.light) body { background: #0d1613; } }
+html.dark {
+  color-scheme: dark;
+}
+html.dark .net-split { color: color-mix(in srgb, var(--hero-ink) 90%, var(--sidebar-accent)) !important; }
+html.dark .metric-bad strong, html.dark .loss { color: var(--danger); }
+html.dark .quick-choices button[aria-pressed="true"] { background: var(--good-pale); }
+html.dark .fab { box-shadow: 0 8px 22px #0008; }
+html.dark .conf-rule { background: color-mix(in srgb, var(--good-pale) 85%, var(--repay-pale)); }
+html.dark .tag-chip button:hover { background: color-mix(in srgb, var(--ink) 10%, transparent); }
+html.dark .metric-bad { border-color: color-mix(in srgb, var(--bg) 65%, var(--danger-solid)); }
+html.dark .legend-line { border-color: var(--accent); }
+html.dark .skip-link { background: var(--surface); }
+html.dark .topbar { background: var(--subtle); }
+html.dark .privacy-badge { background: color-mix(in srgb, var(--subtle) 85%, var(--good-border)); border-color: color-mix(in srgb, var(--good-border) 60%, var(--danger-pale)); color: color-mix(in srgb, var(--label) 50%, var(--accent-hover)); }
+html.dark .privacy-badge i { background: var(--accent); }
+html.dark .privacy-badge.is-offline { color: var(--warn); border-color: var(--warn-border); background: var(--warn-pale); }
+html.dark .button.primary { background: var(--accent-solid); border-color: var(--accent-solid); color: var(--on-accent); }
+html.dark .button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 35%, var(--accent-solid)); border-color: color-mix(in srgb, var(--accent) 35%, var(--accent-solid)); }
+html.dark .button.secondary { background: color-mix(in srgb, var(--subtle) 75%, var(--line-strong)); color: color-mix(in srgb, var(--ink) 90%, var(--accent-solid)); border-color: var(--line-strong); }
+html.dark .button.secondary:hover:not(:disabled) { background: color-mix(in srgb, var(--danger-pale) 35%, var(--income-pale)); border-color: color-mix(in srgb, var(--ink) 20%, var(--good-pale)); }
+html.dark .button.danger { background: var(--danger-solid); }
+html.dark .button.danger-quiet { color: color-mix(in srgb, var(--danger) 90%, var(--repay)); background: color-mix(in srgb, var(--danger-pale) 90%, var(--danger-solid)); }
+html.dark .button.danger-quiet:hover:not(:disabled) { background: color-mix(in srgb, var(--danger-pale) 80%, var(--danger-solid)); }
+html.dark .icon-button { background: color-mix(in srgb, var(--subtle) 75%, var(--line-strong)); color: color-mix(in srgb, var(--label) 90%, var(--accent-solid)); border-color: var(--line); }
+html.dark .icon-button.quiet { background: var(--surface); border-color: var(--line); }
+html.dark .icon-button:hover:not(:disabled) { background: color-mix(in srgb, var(--subtle) 50%, var(--line-strong)); color: var(--accent); border-color: color-mix(in srgb, var(--accent-pale) 90%, var(--danger)); }
+html.dark .danger-icon:hover:not(:disabled) { color: color-mix(in srgb, var(--danger) 90%, var(--repay)); background: color-mix(in srgb, var(--danger-pale) 90%, var(--danger-solid)); border-color: color-mix(in srgb, var(--bg) 55%, var(--danger-solid)); }
+html.dark .period-picker { background: color-mix(in srgb, var(--subtle) 75%, var(--line-strong)); }
+html.dark .period-picker select { color: color-mix(in srgb, var(--ink) 70%, var(--label)); }
+html.dark .period-picker select option, html.dark select option { background: var(--surface); color: var(--ink); }
+html.dark .period-icon, html.dark .period-picker label > svg, html.dark .search-field svg { color: color-mix(in srgb, var(--soft) 75%, var(--accent-hover)); }
+html.dark .notice { border-color: color-mix(in srgb, var(--soft) 10%, var(--accent-pale)); background: color-mix(in srgb, var(--bg) 50%, var(--income-pale)); color: color-mix(in srgb, var(--ink) 50%, var(--good)); }
+html.dark .notice span { color: color-mix(in srgb, var(--soft) 70%, var(--accent-hover)); }
+html.dark .example-notice { background: color-mix(in srgb, var(--repay-pale) 80%, var(--transfer-pale)); border-color: color-mix(in srgb, var(--repay-border) 60%, var(--transfer-pale)); color: color-mix(in srgb, var(--accent-hover) 20%, var(--repay)); }
+html.dark .example-notice span { color: color-mix(in srgb, var(--ink) 30%, var(--chart-repaid)); }
+html.dark .error-notice { background: var(--danger-pale); border-color: color-mix(in srgb, var(--bg) 65%, var(--danger-solid)); color: var(--danger); }
+html.dark .error-notice span { color: color-mix(in srgb, var(--line-strong) 15%, var(--danger)); }
+html.dark .stat-heading { color: var(--muted); }
+html.dark .tone-green, html.dark .entry-income { color: #6fd3ad; background: #163a2e; }
+html.dark .tone-orange, html.dark .entry-expense { color: #f0a283; background: #3b2419; }
+html.dark .tone-blue, html.dark .entry-transfer { color: #a3bfe6; background: #1c2a3d; }
+html.dark .tone-purple { color: #c9b0f0; background: #2a2140; }
+html.dark .tag { background: color-mix(in srgb, var(--subtle) 75%, var(--line-strong)); border-color: color-mix(in srgb, var(--bg) 30%, var(--line-strong)); color: color-mix(in srgb, var(--label) 90%, var(--accent-solid)); }
+html.dark .amount-tag { background: var(--accent-pale); color: var(--accent); }
+html.dark .axis-tick > i { border-color: color-mix(in srgb, var(--line) 70%, var(--line-strong)); }
+html.dark .plot-month { color: var(--soft); }
+html.dark button.plot-month:hover .bar-pair, html.dark button.plot-month[aria-pressed="true"] .bar-pair { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+html.dark .plot-label { color: var(--soft); }
+html.dark .plot-placeholder { background: var(--surface); border-color: color-mix(in srgb, var(--bg) 25%, var(--line-strong)); color: color-mix(in srgb, var(--label) 90%, var(--good-border)); }
+html.dark .plot-placeholder svg { color: color-mix(in srgb, var(--soft) 45%, var(--good)); }
+html.dark .legend { color: var(--muted); }
+html.dark .ring { background: color-mix(in srgb, var(--bg) 25%, var(--line)); }
+html.dark .ring-center { background: var(--surface); }
+html.dark .ring-list li { color: var(--label); }
+html.dark .empty-icon { background: color-mix(in srgb, var(--due-bg) 55%, var(--income-pale)); color: color-mix(in srgb, var(--soft) 45%, var(--good)); }
+html.dark .empty strong { color: color-mix(in srgb, var(--ink) 70%, var(--label)); }
+html.dark .account-mini li, html.dark .label-list li, html.dark .security-list li { border-color: var(--line); }
+html.dark .account-symbol { background: color-mix(in srgb, var(--bg) 55%, var(--line-strong)); color: color-mix(in srgb, var(--label) 90%, var(--accent-solid)); }
+html.dark .account-fineco { background: #1b2540; color: #99b2ec; }
+html.dark .account-revolut { background: #251d3d; color: #bfaaf0; }
+html.dark .data-table th, html.dark .data-table td { border-color: var(--line); }
+html.dark .data-table th { color: color-mix(in srgb, var(--label) 75%, var(--good-border)); }
+html.dark .data-table thead th { background: color-mix(in srgb, var(--subtle) 75%, var(--line-strong)); }
+html.dark .data-table tbody tr:hover { background: color-mix(in srgb, var(--surface) 90%, var(--good-border)); }
+html.dark .data-table tfoot { background: color-mix(in srgb, var(--surface) 85%, var(--good-border)); }
+html.dark .amount-income { color: var(--good); }
+html.dark .amount-expense { color: var(--expense); }
+html.dark .amount-transfer { color: var(--transfer); }
+html.dark input:not([type="hidden"]), html.dark select, html.dark textarea { background: color-mix(in srgb, var(--bg) 25%, var(--subtle)); border-color: var(--line-strong); color: var(--ink); }
+html.dark input::placeholder, html.dark textarea::placeholder { color: color-mix(in srgb, var(--muted) 75%, var(--accent-pale)); }
+html.dark .editor input.proposal-title, html.dark .editor .tag-input input, html.dark .editor .quick-amount input { background: transparent; border-color: transparent; }
+html.dark .editor .quick-amount input { border-bottom-color: var(--line-strong); }
+html.dark .editor input.proposal-title:hover, html.dark .editor input.proposal-title:focus { background: color-mix(in srgb, var(--bg) 25%, var(--subtle)); border-color: var(--line-strong); }
+html.dark input:focus, html.dark select:focus, html.dark textarea:focus { border-color: color-mix(in srgb, var(--surface) 20%, var(--accent)); }
+html.dark input[type="date"]::-webkit-calendar-picker-indicator, html.dark input[type="month"]::-webkit-calendar-picker-indicator { filter: invert(.8); }
+html.dark .account-card { background: color-mix(in srgb, var(--bg) 55%, var(--line)); }
+html.dark .history-labels button:hover { background: color-mix(in srgb, var(--subtle) 60%, var(--line-strong)); }
+html.dark .history-detail { color: color-mix(in srgb, var(--label) 90%, var(--accent-solid)); }
+html.dark .history-svg line { stroke: color-mix(in srgb, var(--line) 70%, var(--line-strong)); }
+html.dark .history-svg stop { stop-color: var(--accent); }
+html.dark .history-svg path[fill="none"] { stroke: var(--accent); }
+html.dark .history-svg path.line-paid[fill="none"] { stroke: var(--soft); }
+html.dark .history-svg circle { fill: var(--accent); stroke: var(--surface); }
+html.dark .segmented { background: var(--subtle); border-color: var(--line); }
+html.dark .segmented button { color: var(--muted); }
+html.dark .segmented button[aria-pressed="true"] { background: color-mix(in srgb, var(--subtle) 90%, var(--accent-hover)); border-color: var(--line-strong); color: var(--accent); }
+html.dark .breakdown-track { background: color-mix(in srgb, var(--bg) 25%, var(--line)); }
+html.dark .subcategories { border-color: var(--line); }
+html.dark .modal, html.dark .idle-dialog { background: var(--surface); }
+html.dark .modal::backdrop, html.dark .idle-dialog::backdrop { background: color-mix(in srgb, var(--shadow-color) 65%, transparent); }
+html.dark .editor label { color: var(--label); }
+html.dark .form-error { color: var(--danger); background: var(--danger-pale); border-color: color-mix(in srgb, var(--bg) 65%, var(--danger-solid)); }
+html.dark .toast { background: color-mix(in srgb, var(--due-bg) 45%, var(--chart-income)); border-color: color-mix(in srgb, var(--line-strong) 35%, var(--chart-income)); }
+html.dark .idle-icon { background: color-mix(in srgb, var(--warn-border) 75%, var(--shadow-color)); color: color-mix(in srgb, var(--warn) 90%, var(--danger)); }
+html.dark .auth-card { border-color: color-mix(in srgb, var(--on-accent) 7%, transparent); }
+html.dark .password-toggle { color: color-mix(in srgb, var(--soft) 75%, var(--accent-hover)); }
+html.dark .password-toggle:hover { background: color-mix(in srgb, var(--subtle) 60%, var(--line-strong)); }
+html.dark .auth-notice-info { background: color-mix(in srgb, var(--repay-pale) 20%, var(--transfer-pale)); border-color: color-mix(in srgb, var(--transfer-pale) 80%, var(--chart-repaid)); color: var(--transfer); }
+html.dark .auth-notice-success { background: color-mix(in srgb, var(--bg) 50%, var(--income-pale)); border-color: color-mix(in srgb, var(--soft) 10%, var(--accent-pale)); color: color-mix(in srgb, var(--on-accent) 20%, var(--good)); }
+html.dark .auth-sent p { color: var(--label); }
+html.dark .net-hero { background: radial-gradient(ellipse at 80% 0%, color-mix(in srgb, var(--accent) 20%, var(--sidebar)) 0%, transparent 80%), var(--hero); }

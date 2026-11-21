@@ -3,6 +3,7 @@ import { useRef, useState, type ChangeEvent } from "react";
 import { Download, FileUp, RotateCcw } from "lucide-react";
 import { BRAND_ICONS, DEFAULT_APPEARANCE, normalizeAppearance, resetSection, type Appearance } from "../../lib/appearance";
 import { downloadFile } from "../../lib/data-io";
+import { disableNotifications, enableNotifications, notificationsOn, notificationsSupported } from "../../lib/notify";
 import { BrandGlyph } from "../brand";
 import { ColorField, Choice, Group, Row, Toggle, patch, type Update } from "./controls";
 
@@ -52,7 +53,25 @@ export function BehaviorPanel({ appearance, update }: { appearance: Appearance; 
       <Toggle label="Modalità discreta all’apertura" checked={behavior.discreet} onChange={(discreet) => patch(update, "behavior", { discreet })} /></Row>
     <Row label="Promemoria in Panoramica" hint="Giorni senza movimenti e saldi di fine mese da registrare.">
       <Toggle label="Promemoria" checked={behavior.reminders} onChange={(reminders) => patch(update, "behavior", { reminders })} /></Row>
+    <NotificationsRow />
   </Group>;
+}
+
+/** Notifica del giorno: vale solo per questo dispositivo, perché il permesso lo dà il telefono o il browser. */
+function NotificationsRow() {
+  const [on, setOn] = useState(notificationsOn);
+  const [message, setMessage] = useState("");
+  if (!notificationsSupported()) return <Row label="Notifiche" hint="Questo browser non le permette."><span /></Row>;
+  async function toggle(next: boolean) {
+    setMessage("");
+    if (!next) { disableNotifications(); setOn(false); return; }
+    const permission = await enableNotifications();
+    setOn(permission === "granted");
+    if (permission !== "granted") setMessage("Permesso negato: puoi concederlo dalle impostazioni del sito nel browser.");
+  }
+  return <Row label="Notifiche su questo dispositivo"
+    hint={message || "Una al giorno, quando apri l’app: ricorrenti da registrare, scadenze di oggi o superate, saldi del mese. Ad app chiusa non arrivano."}>
+    <Toggle label="Notifiche su questo dispositivo" checked={on} onChange={(next) => void toggle(next)} /></Row>;
 }
 
 export function ManagePanel({ appearance, update }: { appearance: Appearance; update: Update }) {

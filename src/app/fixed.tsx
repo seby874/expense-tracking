@@ -111,7 +111,7 @@ function BillsTable({ ledger, bills, year }: { ledger: Ledger; bills: Recurring[
       action={<div className="segmented small-text" role="group" aria-label="Cassa o competenza">
         <button type="button" aria-pressed={mode === "competence"} onClick={() => setMode("competence")}>Competenza</button>
         <button type="button" aria-pressed={mode === "cash"} onClick={() => setMode("cash")}>Cassa</button></div>} />
-    <div className="table-scroll"><table className="data-table compact-table">
+    <div className="table-scroll" tabIndex={0}><table className="data-table compact-table">
       <thead><tr><th scope="col">Bolletta</th>{months.map((month) => <th key={month} scope="col" className="number">{MONTHS[Number(month.slice(5)) - 1].slice(0, 3)}</th>)}<th scope="col" className="number">Anno</th></tr></thead>
       <tbody>{rows.map(({ recurring, values }) => <tr key={recurring.id}>
         <td>{recurring.value.template.title}</td>

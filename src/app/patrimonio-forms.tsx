@@ -129,7 +129,7 @@ function LoanExplainer({ draft }: { draft: LoanDraft }) {
         <li><span>Totale interessi e spese</span><b>{money(costs)}</b></li>
         <li><span>Totale da rimborsare</span><b>{money(loan.principal! + costs)}</b></li>
       </ul>
-      <div className="table-scroll"><table className="data-table compact-table plan-table">
+      <div className="table-scroll" tabIndex={0}><table className="data-table compact-table plan-table">
         <thead><tr><th scope="col">Rata</th><th scope="col">Data</th><th scope="col" className="number">{loan.fee ? "Interessi + spese" : "Interessi"}</th><th scope="col" className="number">Capitale</th><th scope="col" className="number">Residuo</th></tr></thead>
         <tbody>{shown.map((row, index) => row ? <tr key={row.n}><td>{row.n}</td><td className="table-muted">{row.date ? shortDate(row.date) : ""}</td>
           <td className="number">{money(row.interest + row.fee)}</td><td className="number">{money(row.capital)}</td><td className="number">{money(row.residual)}</td></tr>

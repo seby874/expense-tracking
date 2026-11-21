@@ -733,7 +733,7 @@ const CHART_PALETTES: Record<string, string[]> = {
 let chartColors = COLORS;
 
 export interface DisplayFormat {
-  numbers: { cents: boolean; negative: "minus" | "parens"; date: "numeric" | "short" | "iso" };
+  numbers: { cents: boolean; negative: "minus" | "parens" | "red"; date: "numeric" | "short" | "iso" };
   charts: { palette: string };
 }
 

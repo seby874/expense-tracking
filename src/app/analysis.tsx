@@ -29,7 +29,7 @@ export function AnalysisTabs({ ledger, tab, onTab, views }: {
   const current = visible.some(([key]) => key === tab) ? tab : "period";
   return <>
     {visible.length > 1 && <div className="segmented analysis-tabs" role="tablist" aria-label="Viste di analisi">
-      {visible.map(([key, name]) => <button key={key} type="button" role="tab" aria-selected={current === key} aria-pressed={current === key}
+      {visible.map(([key, name]) => <button key={key} type="button" role="tab" aria-selected={current === key}
         onClick={() => onTab(key)}>{name}</button>)}
     </div>}
     {views[current]}
@@ -55,7 +55,7 @@ function TaxLineCard({ line }: { line: TaxLine }) {
     </button>
     {open && <>
       {line.byPerson.length > 1 && <p className="field-note">Per persona: {line.byPerson.map((item) => `${item.person} ${money(item.total)}`).join(" · ")}</p>}
-      <div className="table-scroll"><table className="data-table compact-table">
+      <div className="table-scroll" tabIndex={0}><table className="data-table compact-table">
         <thead><tr><th scope="col">Data</th><th scope="col">Descrizione</th><th scope="col">Per</th><th scope="col">Pagamento</th><th scope="col" className="number">Importo</th><th scope="col">Note</th></tr></thead>
         <tbody>{line.items.map((item, index) => <tr key={`${item.movement.id}-${index}`} className={item.status === "ok" ? undefined : "muted-row"}>
           <td>{shortDate(item.movement.value.date)}</td><td>{item.movement.value.title}</td><td>{item.person ?? "Te"}</td>

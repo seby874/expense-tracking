@@ -84,7 +84,7 @@ export function LoanSimulator({ ledger, debt, today, onRegisterExtra, onApplyPla
       <label>Confronto: rendimento investimento %<input inputMode="decimal" value={invest} onChange={(event) => setInvest(event.target.value)} /></label>
     </div>
 
-    <div className="table-scroll"><table className="data-table compact-table">
+    <div className="table-scroll" tabIndex={0}><table className="data-table compact-table">
       <thead><tr><th scope="col">Scenario</th><th scope="col" className="number">Rata</th><th scope="col">Fine</th><th scope="col" className="number">Interessi</th>
         <th scope="col" className="number">Risparmio</th><th scope="col" className="number">Penale</th><th scope="col" className="number">Mesi in meno</th><th scope="col"><span className="sr-only">Azioni</span></th></tr></thead>
       <tbody>{scenarios.map((item, index) => <tr key={item.kind + index}>

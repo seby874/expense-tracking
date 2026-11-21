@@ -74,7 +74,7 @@ const SECTIONS = {
   },
   numbers: {
     schema: z.object({
-      cents: z.boolean(), negative: z.enum(["minus", "parens"]), compact: z.boolean(), date: z.enum(["numeric", "short", "iso"]),
+      cents: z.boolean(), negative: z.enum(["minus", "parens", "red"]), compact: z.boolean(), date: z.enum(["numeric", "short", "iso"]),
       weekStart: z.enum(["monday", "sunday"]),
     }),
     value: { cents: true, negative: "minus" as const, compact: true, date: "numeric" as const, weekStart: "monday" as const },

@@ -1,6 +1,9 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 export default defineConfig({
   oxc: { jsx: { runtime: "automatic" } },
+  // I test dell'interfaccia (e2e/) li esegue Playwright, non Vitest.
+  test: { exclude: ["e2e/**", "node_modules/**"] },
   build: {
     outDir: "docs",
     chunkSizeWarningLimit: 700, // il file firebase è grande di suo (~640 KB, ~190 KB compresso)

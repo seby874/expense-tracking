@@ -2,6 +2,18 @@
 
 App personale in italiano per registrare entrate, spese, trasferimenti, saldi dei conti e patrimonio netto. Interfaccia React + Vite, dati su Cloud Firestore, accesso con Firebase Authentication (email e password).
 
+## Novità della 2.3
+
+- «Da fare oggi» in Panoramica: ricorrenti da registrare, scadenze vicine o superate, saldi di fine mese, report dell'anno e promemoria in un solo riquadro.
+- Ricerca globale (tasto / o la lente in alto): movimenti (anche per importo o #tag), conti, categorie, scadenze, familiari, ricorrenti, preferiti, obiettivi.
+- Notifica del giorno sul telefono (si accende per dispositivo; arriva all'apertura dell'app; service worker `public/notify-sw.js`, che non salva copie della pagina).
+- Inserimento veloce: categoria abituale per il giorno della settimana e dettatura («caffè 1,20»; il riconoscimento vocale passa dal browser).
+- Accessibilità: contrasti corretti, schede e categorie usabili da tastiera e lettore di schermo, grafici descritti; controllo automatico con axe.
+- Telefono: il registro dei movimenti diventa una scheda per riga (prima l'importo restava fuori dallo schermo).
+- Negativi anche in rosso (Impostazioni → Aspetto → Numeri e date).
+- Test dell'interfaccia con Playwright (`npm run test:e2e`, anche su GitHub): l'app vera con un archivio simulato, su PC e telefono.
+- Apertura più leggera: Impostazioni, editor dell'aspetto, simulatore, spese fisse e fondo si scaricano solo quando servono.
+
 ## Novità della 2.2
 
 Aspetto completamente personalizzabile in Impostazioni → Aspetto, uguale su tutti i dispositivi (documento `setting:look` su Firestore, nessuna regola nuova): 8 temi pronti e tutti i colori modificabili (chiaro e scuro, con controllo del contrasto); chiaro/scuro automatico, fisso o con l'orario; 18 font (Times New Roman, Arial, Courier e Georgia usano su Android i gemelli liberi Tinos, Arimo, Cousine e Gelasio) separati per testo, titoli e numeri; dimensione, peso, interlinea e spaziatura del testo; angoli, ombre, bordi, densità, larghezza e spessore delle icone; sfondi (tinta, sfumatura, sfumatura morbida, 5 motivi, 12 scene disegnate dall'app) con oscuramento, sfocatura, trasparenza ed effetto vetro; menu a sinistra, a destra, in alto o solo icone, ordine e sezioni nascoste, barra del telefono a scelta; Panoramica su 1–3 colonne; formati di importi e date; tavolozze dei grafici e barre al posto della ciambella; accessibilità (animazioni, pulsanti grandi, contorno marcato, collegamenti sottolineati, simboli ▲▼); nome, simbolo e colore del logo; emoji per categorie e conti; aspetto da scaricare e ricaricare come file. Via d'uscita: aggiungere `?aspetto=reset` all'indirizzo.
@@ -125,6 +137,15 @@ src/
   app/board.tsx         riquadri su due colonne indipendenti (Panoramica, Analisi)
   app/layout-2-1.css    stili della revisione grafica 2.1 (dopo globals.css)
   app/theme.css         valori predefiniti del tema (Bosco) e regole delle opzioni dell'aspetto
+  app/today.tsx         riquadro «Da fare oggi» (logica in lib/today.ts)
+  app/search.tsx        ricerca globale (logica in lib/search.ts)
+  app/forms.ts          moduli aperti in LedgerApp: tipi, titoli e suggerimenti delle finestre
+  app/period-picker.tsx mese e anno in cima alle sezioni
+  app/use-appearance-sync.ts  salvataggio e arrivo dell'aspetto sincronizzato
+  app/globals-dark.css, app/globals-features.css  parti di globals.css (stesso ordine)
+  lib/quick-assist.ts   categoria abituale e lettura della dettatura
+  lib/notify.ts         notifica del giorno
+  e2e/                  test dell'interfaccia (Playwright) e app di prova con archivio simulato
   app/appearance/       editor di Impostazioni → Aspetto (temi, colori, sfondo, caratteri, struttura, numeri, grafici…)
   lib/appearance.ts     modello dell'aspetto sincronizzato (sezioni con schema e valori predefiniti)
   lib/palettes.ts       colori del tema, temi pronti, contrasto
